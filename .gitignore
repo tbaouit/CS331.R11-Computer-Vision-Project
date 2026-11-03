@@ -1,0 +1,13 @@
+/dataset/
+/.venv-data/
+/outputs/
+__pycache__/
+*.pyc
+/.venv-gpu/
+/pix2gestalt/
+/vendor/
+/ckpt/
+/dist/
+/installed_gpu_versions.txt
+/dependency_versions.json
+/text_prompt.json

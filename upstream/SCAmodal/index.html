@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AmodalSeg — Click to Unconceal</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0c0c0e;
+    --surface: #131316;
+    --surface2: #1a1a1f;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.14);
+    --text: #e8e8ee;
+    --muted: #6b6b7a;
+    --accent: #7c6dfa;
+    --accent2: #4fd1c5;
+    --warn: #f6ad55;
+    --danger: #fc8181;
+    --success: #68d391;
+    --mono: 'DM Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(12,12,14,0.85);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .logo-icon svg { width: 16px; height: 16px; }
+
+  .header-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--border2);
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+
+  /* ── Pipeline Steps ── */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 0 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    overflow-x: auto;
+  }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    position: relative;
+    transition: color 0.2s;
+  }
+
+  .step.active { color: var(--text); }
+  .step.done { color: var(--success); }
+
+  .step-num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    transition: all 0.2s;
+  }
+
+  .step.active .step-num {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+
+  .step.done .step-num {
+    background: var(--success);
+    border-color: var(--success);
+    color: #0c0c0e;
+  }
+
+  .step-arrow {
+    color: var(--border2);
+    font-size: 14px;
+    padding: 0 4px;
+  }
+
+  /* ── Main Layout ── */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    gap: 0;
+    min-height: 0;
+  }
+
+  /* ── Canvas Area ── */
+  .canvas-area {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+  }
+
+  .canvas-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .tool-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: none;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .tool-btn:hover { border-color: var(--accent); color: var(--text); }
+  .tool-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .tool-btn svg { width: 14px; height: 14px; }
+
+  .tool-sep { width: 1px; height: 20px; background: var(--border2); margin: 0 4px; }
+
+  .canvas-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    background: repeating-conic-gradient(
+      rgba(255,255,255,0.02) 0% 25%, transparent 0% 50%
+    ) 0 0 / 20px 20px;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .canvas-container {
+    position: relative;
+    display: inline-flex;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border2);
+  }
+
+  #main-image {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 280px);
+    object-fit: contain;
+    user-select: none;
+  }
+
+  #mask-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    cursor: crosshair;
+    pointer-events: none;
+  }
+
+  #mask-canvas.interactive { pointer-events: all; }
+
+  /* Upload zone */
+  .upload-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 60px 40px;
+    border: 2px dashed var(--border2);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 400px;
+    min-height: 300px;
+    text-align: center;
+  }
+
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(124,109,250,0.06);
+  }
+
+  .upload-icon {
+    width: 56px; height: 56px;
+    border-radius: 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .upload-icon svg { width: 24px; height: 24px; color: var(--muted); }
+
+  .upload-title {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .upload-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  #file-input { display: none; }
+
+  /* ── Right Panel ── */
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .panel-section {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  /* SAM Settings */
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .setting-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .setting-value {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent2);
+  }
+
+  input[type="range"] {
+    width: 120px;
+    accent-color: var(--accent);
+  }
+
+  /* Masks list */
+  .masks-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 20px;
+  }
+
+  .mask-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 6px;
+  }
+
+  .mask-item:hover { background: var(--surface2); border-color: var(--border2); }
+  .mask-item.selected { background: rgba(124,109,250,0.12); border-color: var(--accent); }
+
+  .mask-thumb {
+    width: 40px; height: 40px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .mask-thumb canvas { width: 100%; height: 100%; }
+
+  .mask-info { flex: 1; min-width: 0; }
+
+  .mask-name {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mask-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .mask-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  .badge-occluded { background: rgba(246,173,85,0.15); color: var(--warn); border: 1px solid rgba(246,173,85,0.3); }
+  .badge-clear { background: rgba(104,211,145,0.1); color: var(--success); border: 1px solid rgba(104,211,145,0.25); }
+
+  /* Result panel */
+  .result-panel {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  .result-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 14px;
+  }
+
+  .result-tab {
+    padding: 5px 12px;
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    background: none;
+    transition: all 0.15s;
+  }
+
+  .result-tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+
+  .result-img-wrap {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .result-img-wrap img {
+    display: block;
+    width: 100%;
+    border-radius: 8px;
+  }
+
+  .checkerboard {
+    background: repeating-conic-gradient(
+      #1a1a1f 0% 25%, #111114 0% 50%
+    ) 0 0 / 12px 12px;
+  }
+
+  .result-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 30px;
+    text-align: center;
+  }
+
+  .result-placeholder svg { width: 28px; height: 28px; opacity: 0.4; }
+
+  /* Run button */
+  .run-btn {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .run-btn:hover { background: #6b5df0; transform: translateY(-1px); }
+  .run-btn:active { transform: translateY(0); }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .run-btn svg { width: 16px; height: 16px; }
+
+  /* Progress */
+  .progress-wrap {
+    margin-top: 10px;
+    display: none;
+  }
+
+  .progress-wrap.show { display: block; }
+
+  .progress-bar-bg {
+    height: 3px;
+    background: var(--surface2);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 6px;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+
+  .progress-text {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* Spinner */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 10px 16px;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    z-index: 200;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.2s;
+    pointer-events: none;
+  }
+
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.success { border-color: var(--success); color: var(--success); }
+  .toast.error { border-color: var(--danger); color: var(--danger); }
+
+  /* Status bar */
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 6px 32px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+
+  .status-dot.warn { background: var(--warn); }
+  .status-dot.idle { background: var(--muted); }
+
+  /* Mask hover overlay on canvas */
+  .mask-hover-label {
+    position: absolute;
+    background: rgba(12,12,14,0.85);
+    border: 1px solid var(--border2);
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    pointer-events: none;
+    white-space: nowrap;
+    display: none;
+    z-index: 10;
+  }
+
+  /* Comparison slider */
+  .compare-wrap {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 8px;
+    cursor: ew-resize;
+    user-select: none;
+  }
+
+  .compare-before, .compare-after {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  .compare-after { overflow: hidden; }
+  .compare-divider {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: white;
+    z-index: 5;
+    cursor: ew-resize;
+  }
+
+  .compare-handle {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: white;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+
+  /* Download btn */
+  .dl-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(79,209,197,0.1);
+    border: 1px solid rgba(79,209,197,0.3);
+    border-radius: 6px;
+    color: var(--accent2);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 10px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .dl-btn:hover { background: rgba(79,209,197,0.18); }
+  .dl-btn svg { width: 13px; height: 13px; }
+
+  /* Mask alpha toggle */
+  .alpha-toggle { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .alpha-label { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 16 16" fill="none" stroke="white" stroke-width="1.5">
+        <circle cx="8" cy="8" r="5"/>
+        <path d="M5 8 Q8 4 11 8" stroke-dasharray="2 1"/>
+        <circle cx="8" cy="8" r="1.5" fill="white" stroke="none"/>
+      </svg>
+    </div>
+    AmodalSeg
+  </div>
+  <div class="header-tag">SAM3 + Stable Diffusion · Training-free</div>
+</header>
+
+<div class="pipeline">
+  <div class="step active" id="step-upload">
+    <div class="step-num">1</div> upload image
+  </div>
+  <div class="step-arrow">›</div>
+  <div class="step" id="step-segment">
+    <div class="step-num">2</div> auto-segment
+  </div>
+  <div class="step-arrow">›</div>
+  <div class="step" id="step-select">
+    <div class="step-num">3</div> click mask
+  </div>
+  <div class="step-arrow">›</div>
+  <div class="step" id="step-amodal">
+    <div class="step-num">4</div> amodal complete
+  </div>
+  <div class="step-arrow">›</div>
+  <div class="step" id="step-result">
+    <div class="step-num">5</div> export
+  </div>
+</div>
+
+<main>
+  <div class="canvas-area">
+    <div class="canvas-toolbar">
+      <button class="tool-btn active" id="btn-select" onclick="setTool('select')">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 2L3 13L7 9.5L9.5 14L11 13.3L8.5 8.5L13 8.5Z" stroke-linejoin="round"/>
+        </svg>
+        select
+      </button>
+      <button class="tool-btn" id="btn-point" onclick="setTool('point')">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="2.5"/>
+          <line x1="8" y1="2" x2="8" y2="4"/><line x1="8" y1="12" x2="8" y2="14"/>
+          <line x1="2" y1="8" x2="4" y2="8"/><line x1="12" y1="8" x2="14" y2="8"/>
+        </svg>
+        add prompt
+      </button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" onclick="toggleOverlay()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M2 8C3.5 4 12.5 4 14 8C12.5 12 3.5 12 2 8Z"/>
+          <circle cx="8" cy="8" r="2"/>
+        </svg>
+        overlay
+      </button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" onclick="resetAll()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 8C3 5.2 5.2 3 8 3C9.6 3 11 3.7 12 4.8"/>
+          <path d="M13 8C13 10.8 10.8 13 8 13C6.4 13 5 12.3 4 11.2"/>
+          <path d="M12 2L12 5L9 5"/>
+        </svg>
+        reset
+      </button>
+      <div style="flex:1"></div>
+      <span id="img-size-label" style="font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
+    </div>
+
+    <div class="canvas-wrap" id="canvas-wrap">
+      <div class="upload-zone" id="upload-zone">
+        <input type="file" id="file-input" accept="image/*">
+        <div class="upload-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <div>
+          <div class="upload-title">Drop image here</div>
+          <div class="upload-sub" style="margin-top:4px">or click to browse · JPG, PNG, WebP</div>
+        </div>
+        <button class="tool-btn" style="margin-top:4px" onclick="document.getElementById('file-input').click()">
+          Browse files
+        </button>
+      </div>
+
+      <div class="canvas-container" id="canvas-container" style="display:none">
+        <img id="main-image" draggable="false">
+        <canvas id="mask-canvas" class="interactive"></canvas>
+        <div class="mask-hover-label" id="hover-label"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div class="panel-section">
+      <div class="section-label">SAM settings</div>
+      <div class="setting-row">
+        <span class="setting-label">points per side</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" min="8" max="64" value="32" id="pts-slider"
+            oninput="document.getElementById('pts-val').textContent=this.value">
+          <span class="setting-value" id="pts-val">32</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">pred IOU thresh</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" min="0" max="100" value="88" id="iou-slider"
+            oninput="document.getElementById('iou-val').textContent=(this.value/100).toFixed(2)">
+          <span class="setting-value" id="iou-val">0.88</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">stability score</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" min="0" max="100" value="95" id="stab-slider"
+            oninput="document.getElementById('stab-val').textContent=(this.value/100).toFixed(2)">
+          <span class="setting-value" id="stab-val">0.95</span>
+        </div>
+      </div>
+      <button class="run-btn" id="seg-btn" onclick="runSegmentation()" disabled>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <polygon points="5,3 13,8 5,13" fill="currentColor" stroke="none"/>
+        </svg>
+        Run SAM segmentation
+      </button>
+    </div>
+
+    <div class="panel-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+      <div class="section-label">
+        detected masks
+        <span id="mask-count" style="color:var(--accent);margin-left:6px">—</span>
+      </div>
+      <div class="masks-scroll" id="masks-list">
+        <div style="text-align:center;padding:30px;font-family:var(--mono);font-size:11px;color:var(--muted)">
+          Run segmentation to see masks
+        </div>
+      </div>
+    </div>
+
+    <div class="result-panel">
+      <div class="section-label">amodal result</div>
+      <div class="result-tabs">
+        <button class="result-tab active" onclick="setTab('rgba')">RGBA</button>
+        <button class="result-tab" onclick="setTab('compare')">Compare</button>
+        <button class="result-tab" onclick="setTab('mask')">Mask only</button>
+      </div>
+
+      <div class="result-img-wrap checkerboard" id="result-wrap">
+        <div class="result-placeholder" id="result-placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M8 12 Q12 6 16 12" stroke-dasharray="2 1.5"/>
+            <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>
+          </svg>
+          Select a mask and run amodal completion
+        </div>
+        <img id="result-img" style="display:none">
+      </div>
+
+      <div class="alpha-toggle">
+        <input type="checkbox" id="alpha-check" checked onchange="toggleAlpha()">
+        <span class="alpha-label">show transparency</span>
+      </div>
+
+      <div class="progress-wrap" id="progress-wrap">
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progress-fill"></div>
+        </div>
+        <div class="progress-text" id="progress-text">Initializing...</div>
+      </div>
+
+      <button class="run-btn" id="amodal-btn" onclick="runAmodal()" disabled style="margin-top:10px">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="5"/>
+          <path d="M5 8 Q8 3 11 8" stroke-dasharray="2 1"/>
+          <circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none"/>
+        </svg>
+        Complete amodal shape
+      </button>
+
+      <button class="dl-btn" id="dl-btn" style="display:none" onclick="downloadResult()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M8 3V11M5 8L8 11L11 8"/>
+          <path d="M3 13H13"/>
+        </svg>
+        download RGBA PNG
+      </button>
+    </div>
+  </div>
+</main>
+
+<div class="statusbar">
+  <div class="status-dot idle" id="status-dot"></div>
+  <span id="status-text">Ready · Upload an image to start</span>
+  <div style="flex:1"></div>
+  <span id="backend-status" style="color:var(--muted)">backend: checking...</span>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'http://localhost:8000';
+
+let state = {
+  imageFile: null,
+  imageDataUrl: null,
+  imageW: 0, imageH: 0,
+  sessionId: null,
+  masks: [],
+  selectedMask: null,
+  overlayVisible: true,
+  currentTab: 'rgba',
+  resultRGBA: null,
+  resultMask: null,
+  tool: 'select',
+};
+
+const COLORS = [
+  [124,109,250], [79,209,197], [246,173,85], [104,211,145],
+  [252,129,129], [159,122,234], [237,137,54], [72,187,120],
+  [99,179,237], [245,101,101], [237,100,166], [56,178,172],
+];
+
+// ── Backend health check ──
+async function checkBackend() {
+  try {
+    const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(2000) });
+    if (r.ok) {
+      document.getElementById('backend-status').textContent = 'backend: connected';
+      document.getElementById('backend-status').style.color = 'var(--success)';
+    }
+  } catch {
+    document.getElementById('backend-status').textContent = 'backend: offline (demo mode)';
+    document.getElementById('backend-status').style.color = 'var(--warn)';
+  }
+}
+
+checkBackend();
+
+// ── Upload ──
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) loadImage(file);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadImage(e.target.files[0]); });
+
+function loadImage(file) {
+  state.imageFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    state.imageDataUrl = e.target.result;
+    const img = document.getElementById('main-image');
+    img.onload = () => {
+      state.imageW = img.naturalWidth;
+      state.imageH = img.naturalHeight;
+      document.getElementById('img-size-label').textContent = `${state.imageW}×${state.imageH}`;
+      setupCanvas(img);
+      document.getElementById('upload-zone').style.display = 'none';
+      document.getElementById('canvas-container').style.display = 'inline-flex';
+      document.getElementById('seg-btn').disabled = false;
+      setStep('segment');
+      setStatus('Image loaded · Click "Run SAM segmentation"', 'ok');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function setupCanvas(img) {
+  const canvas = document.getElementById('mask-canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+
+  canvas.addEventListener('mousemove', onCanvasHover);
+  canvas.addEventListener('click', onCanvasClick);
+  canvas.addEventListener('mouseleave', () => {
+    document.getElementById('hover-label').style.display = 'none';
+    drawMasks(state.selectedMask);
+  });
+}
+
+// ── Tool ──
+function setTool(t) {
+  state.tool = t;
+  document.querySelectorAll('.tool-btn[id^=btn-]').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + t)?.classList.add('active');
+}
+
+// ── Segmentation ──
+async function runSegmentation() {
+  if (!state.imageFile) return;
+
+  const btn = document.getElementById('seg-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Segmenting...';
+  setStatus('Running SAM auto-segmentation...', 'working');
+
+  const iouThresh = document.getElementById('iou-slider').value / 100;
+  const stabScore = document.getElementById('stab-slider').value / 100;
+  const ptsPerSide = parseInt(document.getElementById('pts-slider').value);
+
+  try {
+    const formData = new FormData();
+    formData.append('image', state.imageFile);
+    formData.append('points_per_side', ptsPerSide);
+    formData.append('pred_iou_thresh', iouThresh);
+    formData.append('stability_score_thresh', stabScore);
+
+    const resp = await fetch(`${API}/segment`, { method: 'POST', body: formData });
+
+    if (!resp.ok) throw new Error(await resp.text());
+
+    const data = await resp.json();
+    state.sessionId = data.session_id;
+    state.masks = data.masks;
+
+    renderMasksList();
+    drawMasks(null);
+    document.getElementById('mask-count').textContent = `${state.masks.length} masks`;
+    setStep('select');
+    setStatus(`Found ${state.masks.length} masks · Click a mask to select`, 'ok');
+    showToast(`${state.masks.length} masks detected`, 'success');
+
+  } catch (err) {
+    // Demo mode: generate fake masks for UI preview
+    console.warn('Backend unavailable, using demo masks:', err);
+    state.sessionId = 'demo-' + Date.now();
+    state.masks = generateDemoMasks();
+    renderMasksList();
+    drawMasks(null);
+    document.getElementById('mask-count').textContent = `${state.masks.length} masks (demo)`;
+    setStep('select');
+    setStatus('Demo mode · Click a mask to select', 'warn');
+    showToast('Demo mode: backend offline', '');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = `
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+      <polygon points="5,3 13,8 5,13" fill="currentColor" stroke="none"/>
+    </svg>
+    Re-run segmentation`;
+}
+
+function generateDemoMasks() {
+  const W = state.imageW, H = state.imageH;
+  const demos = [];
+  const regions = [
+    { x: W*0.1, y: H*0.1, w: W*0.3, h: H*0.5, label: 'object_1', occluded: true },
+    { x: W*0.35, y: H*0.05, w: W*0.35, h: H*0.6, label: 'object_2', occluded: false },
+    { x: W*0.6, y: H*0.3, w: W*0.3, h: H*0.55, label: 'object_3', occluded: true },
+    { x: W*0.05, y: H*0.65, w: W*0.9, h: H*0.3, label: 'background', occluded: false },
+  ];
+  regions.forEach((r, i) => {
+    const rle = { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) };
+    demos.push({
+      id: i,
+      bbox: [rle.x, rle.y, rle.w, rle.h],
+      area: rle.w * rle.h,
+      predicted_iou: 0.85 + Math.random() * 0.1,
+      label: r.label,
+      occluded: r.occluded,
+      segmentation: rle,
+    });
+  });
+  return demos;
+}
+
+// ── Draw masks on canvas ──
+function drawMasks(selectedId, hoverId) {
+  const canvas = document.getElementById('mask-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!state.overlayVisible || state.masks.length === 0) return;
+
+  state.masks.forEach((mask, i) => {
+    const col = COLORS[i % COLORS.length];
+    const isSelected = mask.id === selectedId;
+    const isHover = mask.id === hoverId;
+
+    ctx.save();
+
+    if (mask.segmentation && mask.segmentation.w) {
+      const { x, y, w, h } = mask.segmentation;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 4);
+
+      if (isSelected) {
+        ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.45)`;
+        ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},1)`;
+        ctx.lineWidth = 3;
+      } else if (isHover) {
+        ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.35)`;
+        ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.9)`;
+        ctx.lineWidth = 2;
+      } else {
+        ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.18)`;
+        ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.6)`;
+        ctx.lineWidth = 1.5;
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      if (isSelected) {
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  });
+}
+
+function onCanvasHover(e) {
+  if (state.masks.length === 0) return;
+  const canvas = document.getElementById('mask-canvas');
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+
+  let hit = null;
+  for (const mask of state.masks) {
+    if (mask.segmentation && mask.segmentation.w) {
+      const { x: mx, y: my, w: mw, h: mh } = mask.segmentation;
+      if (x >= mx && x <= mx + mw && y >= my && y <= my + mh) {
+        hit = mask;
+      }
+    }
+  }
+
+  const label = document.getElementById('hover-label');
+  if (hit) {
+    drawMasks(state.selectedMask, hit.id);
+    label.style.display = 'block';
+    label.style.left = (e.clientX - rect.left + 12) + 'px';
+    label.style.top = (e.clientY - rect.top - 24) + 'px';
+    label.textContent = hit.label || `mask_${hit.id}`;
+  } else {
+    drawMasks(state.selectedMask);
+    label.style.display = 'none';
+  }
+}
+
+function onCanvasClick(e) {
+  if (state.masks.length === 0) return;
+  const canvas = document.getElementById('mask-canvas');
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+
+  let hit = null;
+  for (const mask of state.masks) {
+    if (mask.segmentation && mask.segmentation.w) {
+      const { x: mx, y: my, w: mw, h: mh } = mask.segmentation;
+      if (x >= mx && x <= mx + mw && y >= my && y <= my + mh) hit = mask;
+    }
+  }
+
+  if (hit) {
+    selectMask(hit.id);
+  }
+}
+
+function selectMask(id) {
+  state.selectedMask = id;
+  drawMasks(id);
+
+  document.querySelectorAll('.mask-item').forEach(el => {
+    el.classList.toggle('selected', parseInt(el.dataset.id) === id);
+  });
+
+  document.getElementById('amodal-btn').disabled = false;
+  setStep('amodal');
+  setStatus(`Mask ${id} selected · Run amodal completion`, 'ok');
+}
+
+// ── Masks list ──
+function renderMasksList() {
+  const list = document.getElementById('masks-list');
+  list.innerHTML = '';
+
+  state.masks.forEach((mask, i) => {
+    const col = COLORS[i % COLORS.length];
+    const item = document.createElement('div');
+    item.className = 'mask-item';
+    item.dataset.id = mask.id;
+    item.onclick = () => selectMask(mask.id);
+
+    const area_pct = ((mask.area / (state.imageW * state.imageH)) * 100).toFixed(1);
+    const iou_str = mask.predicted_iou ? mask.predicted_iou.toFixed(2) : '—';
+
+    item.innerHTML = `
+      <div class="mask-thumb">
+        <canvas id="thumb-${mask.id}" width="40" height="40"></canvas>
+      </div>
+      <div class="mask-info">
+        <div class="mask-name">${mask.label || 'mask_' + mask.id}</div>
+        <div class="mask-meta">area ${area_pct}% · IOU ${iou_str}</div>
+      </div>
+      <div class="mask-badge ${mask.occluded ? 'badge-occluded' : 'badge-clear'}">
+        ${mask.occluded ? 'occluded' : 'clear'}
+      </div>
+    `;
+    list.appendChild(item);
+
+    requestAnimationFrame(() => {
+      const tc = document.getElementById('thumb-' + mask.id);
+      if (!tc) return;
+      const tctx = tc.getContext('2d');
+      tctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.4)`;
+      tctx.fillRect(0, 0, 40, 40);
+      if (mask.segmentation && mask.segmentation.w) {
+        const { x, y, w, h } = mask.segmentation;
+        const sx = 40 / state.imageW, sy = 40 / state.imageH;
+        tctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.85)`;
+        tctx.fillRect(x * sx, y * sy, w * sx, h * sy);
+      }
+    });
+  });
+}
+
+// ── Amodal completion ──
+async function runAmodal() {
+  if (state.selectedMask === null) return;
+
+  const btn = document.getElementById('amodal-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Running inpainting...';
+
+  const progress = document.getElementById('progress-wrap');
+  const fill = document.getElementById('progress-fill');
+  const ptext = document.getElementById('progress-text');
+  progress.classList.add('show');
+
+  const steps = [
+    [15, 'Extracting visible mask...'],
+    [35, 'Analyzing occlusion relationships...'],
+    [55, 'Selecting inpainting prompt...'],
+    [75, 'Running Stable Diffusion inpainting (iter 1)...'],
+    [90, 'Alpha blending + RGBA output...'],
+    [100, 'Done!'],
+  ];
+
+  setStatus('Running amodal completion pipeline...', 'working');
+
+  try {
+    const selectedMask = state.masks.find(m => m.id === state.selectedMask);
+    const formData = new FormData();
+    formData.append('session_id', state.sessionId);
+    formData.append('mask_id', state.selectedMask);
+
+    let stepIdx = 0;
+    const progressInterval = setInterval(() => {
+      if (stepIdx < steps.length - 1) {
+        stepIdx++;
+        fill.style.width = steps[stepIdx][0] + '%';
+        ptext.textContent = steps[stepIdx][1];
+      }
+    }, 800);
+
+    const resp = await fetch(`${API}/amodal_complete`, { method: 'POST', body: formData });
+    clearInterval(progressInterval);
+
+    if (!resp.ok) throw new Error(await resp.text());
+
+    const blob = await resp.blob();
+    state.resultRGBA = URL.createObjectURL(blob);
+
+    fill.style.width = '100%';
+    ptext.textContent = 'Done!';
+    showResult(state.resultRGBA);
+    setStep('result');
+    setStatus('Amodal completion finished · Download RGBA PNG', 'ok');
+    showToast('Amodal completion done!', 'success');
+
+  } catch (err) {
+    console.warn('Backend unavailable, showing demo result:', err);
+
+    // Demo: draw a "completed" version on a canvas
+    const demoCanvas = document.createElement('canvas');
+    demoCanvas.width = state.imageW;
+    demoCanvas.height = state.imageH;
+    const dctx = demoCanvas.getContext('2d');
+    const img = document.getElementById('main-image');
+    dctx.drawImage(img, 0, 0);
+
+    const mask = state.masks.find(m => m.id === state.selectedMask);
+    if (mask && mask.segmentation) {
+      const { x, y, w, h } = mask.segmentation;
+      const col = COLORS[state.selectedMask % COLORS.length];
+      dctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.35)`;
+      dctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.9)`;
+      dctx.lineWidth = 3;
+      dctx.setLineDash([8, 4]);
+      const ext = 20;
+      dctx.fillRect(x - ext, y - ext, w + ext*2, h + ext*2);
+      dctx.strokeRect(x - ext, y - ext, w + ext*2, h + ext*2);
+    }
+
+    state.resultRGBA = demoCanvas.toDataURL('image/png');
+    fill.style.width = '100%';
+    ptext.textContent = 'Demo result (backend offline)';
+    showResult(state.resultRGBA);
+    setStep('result');
+    setStatus('Demo mode: showing mock result', 'warn');
+    showToast('Demo result (connect backend for real output)', '');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = `
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="8" cy="8" r="5"/><path d="M5 8 Q8 3 11 8" stroke-dasharray="2 1"/>
+      <circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none"/>
+    </svg>
+    Re-run completion`;
+}
+
+function showResult(src) {
+  document.getElementById('result-placeholder').style.display = 'none';
+  const img = document.getElementById('result-img');
+  img.src = src;
+  img.style.display = 'block';
+  document.getElementById('dl-btn').style.display = 'flex';
+}
+
+function setTab(tab) {
+  state.currentTab = tab;
+  document.querySelectorAll('.result-tab').forEach((t, i) => {
+    t.classList.toggle('active', ['rgba','compare','mask'][i] === tab);
+  });
+  const wrap = document.getElementById('result-wrap');
+  if (tab === 'rgba') wrap.className = 'result-img-wrap checkerboard';
+  else if (tab === 'compare') wrap.className = 'result-img-wrap';
+  else wrap.className = 'result-img-wrap';
+}
+
+function toggleAlpha() {
+  const img = document.getElementById('result-img');
+  const show = document.getElementById('alpha-check').checked;
+  document.getElementById('result-wrap').className = show
+    ? 'result-img-wrap checkerboard'
+    : 'result-img-wrap';
+}
+
+function toggleOverlay() {
+  state.overlayVisible = !state.overlayVisible;
+  drawMasks(state.selectedMask);
+}
+
+function downloadResult() {
+  if (!state.resultRGBA) return;
+  const a = document.createElement('a');
+  a.href = state.resultRGBA;
+  a.download = `amodal_mask_${state.selectedMask}_${Date.now()}.png`;
+  a.click();
+}
+
+function resetAll() {
+  state = { ...state, masks: [], selectedMask: null, resultRGBA: null, sessionId: null };
+  document.getElementById('masks-list').innerHTML =
+    '<div style="text-align:center;padding:30px;font-family:var(--mono);font-size:11px;color:var(--muted)">Run segmentation to see masks</div>';
+  document.getElementById('mask-canvas').getContext('2d').clearRect(0, 0, 9999, 9999);
+  document.getElementById('result-placeholder').style.display = 'flex';
+  document.getElementById('result-img').style.display = 'none';
+  document.getElementById('dl-btn').style.display = 'none';
+  document.getElementById('progress-wrap').classList.remove('show');
+  document.getElementById('amodal-btn').disabled = true;
+  document.getElementById('mask-count').textContent = '—';
+  setStep('segment');
+}
+
+// ── UI helpers ──
+function setStep(s) {
+  const steps = ['upload','segment','select','amodal','result'];
+  const idx = steps.indexOf(s);
+  steps.forEach((name, i) => {
+    const el = document.getElementById('step-' + name);
+    if (!el) return;
+    el.classList.remove('active','done');
+    if (i < idx) el.classList.add('done');
+    else if (i === idx) el.classList.add('active');
+  });
+}
+
+function setStatus(msg, type) {
+  document.getElementById('status-text').textContent = msg;
+  const dot = document.getElementById('status-dot');
+  dot.className = 'status-dot';
+  if (type === 'ok') dot.style.background = 'var(--success)';
+  else if (type === 'working') dot.style.background = 'var(--warn)';
+  else if (type === 'warn') dot.style.background = 'var(--warn)';
+  else dot.style.background = 'var(--muted)';
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(() => t.className = 'toast', 2800);
+}
+</script>
+</body>
+</html>

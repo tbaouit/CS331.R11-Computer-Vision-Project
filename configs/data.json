@@ -1,0 +1,11 @@
+{
+  "dataset_root": "dataset/cocoa",
+  "output_dir": "outputs/train_smoke",
+  "split": "train",
+  "limit": 10,
+  "one_object_per_image": true,
+  "min_visible_pixels": 64,
+  "min_amodal_pixels": 64,
+  "min_hidden_ratio": 0.05,
+  "max_hidden_ratio": 0.7
+}

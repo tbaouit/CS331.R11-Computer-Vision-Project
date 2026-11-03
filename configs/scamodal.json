@@ -1,0 +1,13 @@
+{
+  "seed": 42,
+  "inpainting_model_id": "sd2-community/stable-diffusion-2-inpainting",
+  "clip_model_id": "openai/clip-vit-base-patch32",
+  "device": "cuda",
+  "critique_threshold": 7,
+  "max_critic_iter": 2,
+  "enable_critic": true,
+  "mask_only": false,
+  "text_query_policy": "upstream_default",
+  "outpainting": "upstream_default",
+  "appearance_metrics": false
+}

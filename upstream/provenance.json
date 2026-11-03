@@ -1,0 +1,143 @@
+{
+  "repo": "https://github.com/dpduy123/SCAmodal",
+  "commit": "92e5b392cba1c767f4ddc08497f6b4450743929a",
+  "source_files": [
+    {
+      "path": ".gitignore",
+      "sha256": "de72c9ff4417f5d116f875089cf54b0edf002974ebc6a2fd17071cc8d95f6ea9"
+    },
+    {
+      "path": "amodal_completer.py",
+      "sha256": "64ebf4942744d0ad76b449b91bfca5aafbad97f2baaeed1c6e5ad459fef75dd4"
+    },
+    {
+      "path": "amodal_shape_predictor.py",
+      "sha256": "ef7c2d49e9edadf00372bf8c754fd9d4256d3d6c1280a637360423a907de14d5"
+    },
+    {
+      "path": "COLAB_GUIDE.md",
+      "sha256": "709df32f9bcce7bb2a666843bbf521785868f318065cba884647bc7b0d6e6c42"
+    },
+    {
+      "path": "colab_setup.py",
+      "sha256": "2e3f2e1a7acbf41b2834b638ecff1c88fce367519f5b5a576808bcf01b844ffb"
+    },
+    {
+      "path": "dataset/COCOA/cocoa_annotation.json",
+      "sha256": "a765246feb72b2682f2be272285f6b07379522aa78e19eee661df1b1bdb32d87"
+    },
+    {
+      "path": "dataset/COCOA/img_filenames_cocoa.txt",
+      "sha256": "4b2829e995d8e6fbb044c60acbf090f53e032e8f492fe9cd1a05cbe700b2e732"
+    },
+    {
+      "path": "dataset/LAION/img_filenames_laion.txt",
+      "sha256": "3574a8808652130897a8063a1a93a7e26a68e229e978c68e92e043f455e275f1"
+    },
+    {
+      "path": "dataset/LAION/laion_00000_annotation.json",
+      "sha256": "7f71e776db640864eb0aa6be3393e6ff16a6310f8cbafe931095d83049042e98"
+    },
+    {
+      "path": "eval_cocoa/evaluate_cocoa.py",
+      "sha256": "40ea0decabfc4fdf1877d850486a019670fed952d8b2dd1d307f687906823099"
+    },
+    {
+      "path": "eval_cocoa/extract_cocoa_subset.py",
+      "sha256": "01b06cb69d238e66169b2ac633d6656472938cbdc5ac9fbf4c49f491e0839d7c"
+    },
+    {
+      "path": "eval_laion/__init__.py",
+      "sha256": "7368d75ea3f894e22a0579df18ab67e0a71bce54acd0b88eb4c17e4362faa754"
+    },
+    {
+      "path": "eval_laion/colab_run_laion.py",
+      "sha256": "6b740ccdaf65216cf62ff13162d6768a4dbf4f127fa47a4e57977bb341fc1764"
+    },
+    {
+      "path": "eval_laion/evaluate_laion.py",
+      "sha256": "84bec7e989649cd89b7ae8a0b441edeb06b0f82eaeabe7b3e89607cc67039e65"
+    },
+    {
+      "path": "eval_laion/mask_generator.py",
+      "sha256": "7442e8ceba9cb38424c15dc31b5170fb13d3266390709ddf24e905d0ba29ccc9"
+    },
+    {
+      "path": "evaluate_amodal.py",
+      "sha256": "f928ecbc28b603da8c17ab0fc06637d24c1006e3709602f09f6afd926763af02"
+    },
+    {
+      "path": "index.html",
+      "sha256": "dfd00e81ec6596aea521d9a3ccc740d7aab42221f4b73dbe9f1d7d59a27de647"
+    },
+    {
+      "path": "metrics_utils.py",
+      "sha256": "feefebec04c90c3ab8229045ce20aba83257447069dcf830ed97b208d1f2d1be"
+    },
+    {
+      "path": "README.md",
+      "sha256": "49e0741061e5b1b89aa64b5b5784ad5d368a6d88930eb7c97e69d6ede52717af"
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "988388ef747086a03637b0c62849f4ee9cb7654afbb2cd3dc742661a37d42a9d"
+    },
+    {
+      "path": "scripts/clear_gpu.py",
+      "sha256": "951594ec5ffb6bed207506c902914aebed7bb66c81feead16e3a67c865f3a588"
+    },
+    {
+      "path": "scripts/dataset_downloader.py",
+      "sha256": "da2a448663a2a0c65a86196be28f206cdb421388ec750340ed8e8de24f7c25c1"
+    },
+    {
+      "path": "segmenter.py",
+      "sha256": "9d393bd0da5c6844107362583d385e6a6118d6af59996107bce17447ea1881f8"
+    },
+    {
+      "path": "server.py",
+      "sha256": "a15518b55886e97f1d2fff55e8eb9cf71d1cc761862fff4c83bc8a6bb71b44c0"
+    },
+    {
+      "path": "test_qwen.py",
+      "sha256": "21a1ea48e2421e8a6f5bc741cd88f123ef9db52e5b6aff41c51e434bc81a5fc0"
+    },
+    {
+      "path": "vlm_reasoner.py",
+      "sha256": "a41c3bd56b221ac8fdde0ba15635758c71c6aa0df733df1ab15a9ae79f2b794b"
+    }
+  ],
+  "runtime_files": [
+    {
+      "path": "amodal_completer.py",
+      "original_sha256": "64ebf4942744d0ad76b449b91bfca5aafbad97f2baaeed1c6e5ad459fef75dd4",
+      "runtime_sha256": "74b78cd502865c9f65b5e92db8516bcaea8c7049f2424eff7eb0fa85bac2621a"
+    },
+    {
+      "path": "amodal_shape_predictor.py",
+      "original_sha256": "ef7c2d49e9edadf00372bf8c754fd9d4256d3d6c1280a637360423a907de14d5",
+      "runtime_sha256": "42cc6c38443777d7e015527d5861a692895fff7abbb167e9735cdc4415dc704f"
+    },
+    {
+      "path": "vlm_reasoner.py",
+      "original_sha256": "a41c3bd56b221ac8fdde0ba15635758c71c6aa0df733df1ab15a9ae79f2b794b",
+      "runtime_sha256": "ed9955acfb86d036ec8a22d1d8d7232ad5c23d91974bfd7cb48f53de94986032"
+    },
+    {
+      "path": "metrics_utils.py",
+      "original_sha256": "feefebec04c90c3ab8229045ce20aba83257447069dcf830ed97b208d1f2d1be",
+      "runtime_sha256": "12e1311d62541d66a9f0f3b5cd733fe1ace156debffc91d88b325b03c5b6d90b"
+    },
+    {
+      "path": "segmenter.py",
+      "original_sha256": "9d393bd0da5c6844107362583d385e6a6118d6af59996107bce17447ea1881f8",
+      "runtime_sha256": "9d393bd0da5c6844107362583d385e6a6118d6af59996107bce17447ea1881f8"
+    }
+  ],
+  "changes": [
+    "disable heuristic fallback; reject missing Pix2Gestalt/Qwen",
+    "save Pix2Gestalt RGB and CarveKit alpha",
+    "reject missing/out-of-range critic scores rather than default 5",
+    "no change to generation prompt, mask processing, inpainting or critic loop"
+  ]
+}
