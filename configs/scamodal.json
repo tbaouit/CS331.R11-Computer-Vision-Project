@@ -1,5 +1,11 @@
 {
   "seed": 42,
+  "pipeline_mode": "improved",
+  "pix2gestalt_samples": 3,
+  "roi_context_scale": 3.8,
+  "carvekit_alpha_threshold": 0.48,
+  "prior_refine_strength": 0.42,
+  "dropout_refine_strength": 0.78,
   "inpainting_model_id": "sd2-community/stable-diffusion-2-inpainting",
   "clip_model_id": "openai/clip-vit-base-patch32",
   "device": "cuda",
@@ -8,6 +14,6 @@
   "enable_critic": true,
   "mask_only": false,
   "text_query_policy": "upstream_default",
-  "outpainting": "upstream_default",
+  "outpainting": "disabled",
   "appearance_metrics": false
 }

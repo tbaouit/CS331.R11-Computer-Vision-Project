@@ -56,3 +56,19 @@ Chỉ có result.json status=completed mới được resume; mẫu lỗi có fa
 completed nghĩa là đã sinh và xuất ảnh, không có nghĩa critic đã chấp nhận: xem critic_accepted.
 Backup ZIP sau từng mẫu nếu truyền --backup-dir; vẫn có thể mất mẫu đang chạy nếu runtime bị xóa đột ngột.
 Không chạy hai notebook ghi cùng outputs cùng lúc.
+
+
+## Chế độ cải tiến (`pipeline_mode = "improved"`)
+
+Giữ nguyên toàn bộ byte của `upstream/SCAmodal` và `runtime/SCAmodal` (chế độ gốc được giữ tại `configs/scamodal_baseline.json` với `pipeline_mode = "upstream_baseline"` để đối chiếu ablation). Cấu hình mặc định `configs/scamodal.json` kích hoạt `src/scamodal_improved.py` (`ImprovedAmodalCompleter`), khắc phục 4 lỗi hình dạng và màu sắc của bản gốc mà không dùng thêm trọng số huấn luyện và không chạm tới ground-truth mask:
+
+1. **Context-Aware Square ROI + Multi-Sample Pix2Gestalt Consensus + Smooth Alpha Matting**:
+   - Crop cửa sổ vuông có ngữ cảnh quanh `visible_mask` (`roi_context_scale = 3.8`, tối thiểu `256px`, tự động dùng toàn khung khi vật thể lớn `>= 85%` khung) giúp các vật thể nhỏ giữ độ phân giải thực thay vì bị nén xuống vài pixel trong khung `256x256`.
+   - Lấy mẫu đa phương án (`pix2gestalt_samples = 3`), lọc mẫu ngoại lai nở bất thường, nội suy tuyến tính kênh `alpha` của CarveKit về kích thước gốc trước khi ngưỡng hóa (`alpha >= 0.48` ở biên ngoài thay vì `alpha > 0` gây quầng xám/tai mèo, kết hợp khôi phục khe lõm nội vùng có `alpha >= 0.12`), và giữ thành phần liên thông bám `visible_mask`.
+2. **Mask-Guided Visual Prompting cho Qwen3-VL**:
+   - Truyền đồng thời ảnh ngữ cảnh cục bộ (vùng `visible_mask` sáng 100% có viền xanh lá, vùng khuất dự đoán viền vàng, các vật che khuất bị làm tối) và ảnh tách riêng `visible_mask` trên nền trắng vuông, buộc Qwen xuất cấu trúc `OBJECT / OCCLUDED_PARTS / PROMPT` đúng vật thể mục tiêu (tránh mô tả nhầm vật che khuất như hot dog, xe máy, ván trượt) kết hợp CLIP kiểm chứng trên khung vuông.
+3. **Hybrid Pix2Gestalt RGB Prior + 512x512 ROI SD2 Refinement trên nền trắng**:
+   - Tắt outpainting làm phình biên xám vô ích; dùng chính RGB tổng hợp của Pix2Gestalt sau khi cân bằng màu (gain/bias theo `visible_mask`), khử viền trắng và vá lỗ khuyết trắng nội vùng bằng Telea làm khởi tạo cho SD2 Inpainting trên ROI `512x512` (`strength = 0.42` khi prior đầy đủ, `0.78` khi có vùng khuyết trắng), kèm hòa trộn biên thích nghi `1-3 px` giữ nguyên gần như tuyệt đối pixel vùng nhìn thấy.
+4. **Target-Aware Cropped Critic & Best-of-N**:
+   - Crop sát vật thể hoàn thiện trên nền trắng gửi cho Qwen Critic kèm tên vật thể mục tiêu và luôn giữ lại phương án có điểm Critic cao nhất qua các lần thử.
+   - Dùng `scripts/compare_runs.py` để xuất bảng định lượng và lưới ảnh đối chiếu trực tiếp Baseline vs Improved (`outputs/scamodal/comparison_grid.jpg`).
