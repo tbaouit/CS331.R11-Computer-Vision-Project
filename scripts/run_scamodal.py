@@ -13,6 +13,8 @@ class Tee:
         return len(text)
     def flush(self):
         for stream in self.streams: stream.flush()
+    def isatty(self): return False
+    def __getattr__(self,name): return getattr(self.streams[0],name)
 
 def backup(job_root, destination):
     if not destination: return
