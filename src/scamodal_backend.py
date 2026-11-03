@@ -16,7 +16,8 @@ class SCAmodalBackend:
         if not hasattr(Image, 'ANTIALIAS'): Image.ANTIALIAS = Image.Resampling.LANCZOS
         if config["device"] != "cuda" or not torch.cuda.is_available():
             raise RuntimeError("This full SCAmodal configuration requires CUDA. Use the Colab notebook.")
-        sys.path.insert(0, str(ROOT/"runtime/SCAmodal"))
+        for extra in ["vendor/taming-transformers","vendor/CLIP","pix2gestalt","pix2gestalt/pix2gestalt","runtime/SCAmodal"]:
+            sys.path.insert(0, str(ROOT/extra))
         from amodal_completer import AmodalCompleter
         self.cls = AmodalCompleter
         self.model = AmodalCompleter(inpainting_model_id=config["inpainting_model_id"],

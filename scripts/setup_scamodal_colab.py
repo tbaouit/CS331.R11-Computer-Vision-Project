@@ -32,7 +32,16 @@ def main():
     for name,url in [("taming-transformers","https://github.com/CompVis/taming-transformers.git"),
                      ("CLIP","https://github.com/openai/CLIP.git")]:
         dependencies[name]=clone(url,ROOT/"vendor"/name)
+        if name=="taming-transformers":
+            (ROOT/"vendor/taming-transformers/taming/__init__.py").touch()
         run(install+["--no-deps","--no-build-isolation","-e",str(ROOT/"vendor"/name)])
+    site_pkgs=next((ROOT/".venv-gpu/lib").glob("python*/site-packages"))
+    (site_pkgs/"scamodal_vendor.pth").write_text("\n".join([
+        str(ROOT/"vendor/taming-transformers"),
+        str(ROOT/"vendor/CLIP"),
+        str(ROOT/"pix2gestalt"),
+        str(ROOT/"pix2gestalt/pix2gestalt"),
+    ])+"\n",encoding="utf-8")
     # A narrow compatibility patch to the local Pix2Gestalt dependency.
     ddpm=ROOT/"pix2gestalt/pix2gestalt/ldm/models/diffusion/ddpm.py"
     code=ddpm.read_text(encoding="utf-8")

@@ -19,7 +19,8 @@ def main():
         print("NOTE: full concurrent author pipeline has not been verified on this small GPU; A100/high RAM recommended.")
     from PIL import Image
     if not hasattr(Image,"ANTIALIAS"): Image.ANTIALIAS=Image.Resampling.LANCZOS
-    sys.path.insert(0,str(ROOT/"pix2gestalt/pix2gestalt"))
+    for extra in ["vendor/taming-transformers","vendor/CLIP","pix2gestalt","pix2gestalt/pix2gestalt"]:
+        sys.path.insert(0,str(ROOT/extra))
     sys.path.insert(0,str(ROOT/"runtime/SCAmodal"))
     for name in ["diffusers","transformers","qwen_vl_utils","clip","carvekit.api.high",
                  "ldm.models.diffusion.ddpm","inference","amodal_completer","pycocotools","lpips","skimage"]:
