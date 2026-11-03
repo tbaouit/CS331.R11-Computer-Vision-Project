@@ -16,6 +16,7 @@ from src.scamodal_improved import (
     compute_square_roi,
     extract_square_roi,
     fuse_pix2gestalt_predictions,
+    lock_low_frequency_to_prior,
     parse_structured_vlm_reasoning,
     paste_square_roi,
 )
@@ -173,6 +174,27 @@ class ImprovedPipelineTests(unittest.TestCase):
         fallback = parse_structured_vlm_reasoning("The target object is a green glass jar with metal lid.", "jar")
         self.assertEqual(fallback["object_name"], "jar")
         self.assertIn("green glass jar", fallback["sd_prompt"])
+
+    def test_occluder_censoring_and_frequency_color_lock_prevent_food_hallucination(self):
+        # 1. Verify bright red ketchup occluder inside container hole is completely censored in context_rgb
+        img = np.full((160, 160, 3), 230, dtype=np.uint8)
+        amodal = np.zeros((160, 160), dtype=bool)
+        amodal[20:140, 20:140] = True
+        vis = amodal.copy()
+        vis[45:115, 45:115] = False  # interior hole where sandwich sits
+        img[45:115, 45:115] = np.array([245, 25, 20], dtype=np.uint8)  # bright red ketchup occluder
+
+        ctx, _, _ = build_vlm_visual_prompts(img, vis, amodal, target_size=160)
+        center_rgb = ctx[80, 80].astype(float)
+        # Red channel is no longer dominant (replaced by neutral slate censor stripes)
+        self.assertLess(abs(center_rgb[0] - center_rgb[1]), 15.0)
+
+        # 2. Verify lock_low_frequency_to_prior blocks SD2 from painting dark purple/red food over white container
+        seed_rgb = np.full((160, 160, 3), 224, dtype=np.uint8)  # clean white styrofoam from Pix2Gestalt
+        sd_hallucinated = seed_rgb.copy()
+        sd_hallucinated[45:115, 45:115] = np.array([85, 65, 95], dtype=np.uint8)  # purple onions hallucination
+        locked = lock_low_frequency_to_prior(seed_rgb, sd_hallucinated, amodal & (~vis))
+        self.assertGreater(locked[55:105, 55:105].mean(), 212.0)
 
     def test_adaptive_seam_blend_and_critic_crop(self):
         img = np.full((120, 120, 3), 80, dtype=np.uint8)

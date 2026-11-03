@@ -36,8 +36,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=ROOT / "outputs/train_smoke/manifest.json")
     parser.add_argument("--config", type=Path, default=ROOT / "configs/scamodal.json")
-    parser.add_argument("--limit", type=int, default=1)
+    parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--backup-dir", type=Path)
+    parser.add_argument("--backup-every", type=int, default=5)
     parser.add_argument("--allow-test", action="store_true", help="Explicit final-test run after configuration is frozen")
     args = parser.parse_args()
     config = json.loads(args.config.read_text(encoding="utf-8"))
@@ -65,7 +66,7 @@ def main():
     for name in ["installed_gpu_versions.txt", "dependency_versions.json"]:
         if (ROOT / name).is_file(): shutil.copy2(ROOT / name, output_root / name)
     results = []
-    needs_final_backup = False
+    dirty_backup = False
     os.chdir(ROOT)
     with (output_root / "pipeline.log").open("a", encoding="utf-8") as log:
         with contextlib.redirect_stdout(Tee(sys.stdout, log)), contextlib.redirect_stderr(Tee(sys.stderr, log)):
@@ -77,31 +78,36 @@ def main():
                 class LazyBackend:
                     def begin_sample(self, job):
                         nonlocal backend
-                        if backend is None: backend = SCAmodalBackend(config)
+                        if backend is None:
+                            t_load = time.perf_counter()
+                            print("[Init] Loading foundation models once for the whole batch...", flush=True)
+                            backend = SCAmodalBackend(config)
+                            print(f"[Init] All models loaded in {time.perf_counter() - t_load:.1f}s.", flush=True)
                         backend.begin_sample(job)
                     def complete(self, *values): return backend.complete(*values)
                 lazy = LazyBackend()
                 print(f"Profile: {profile} | Mode: {config.get('pipeline_mode', 'upstream_baseline')} | Targets: {len(records)}", flush=True)
-                for record in records:
-                    needs_final_backup = True
+                for idx, record in enumerate(records, start=1):
+                    dirty_backup = True
                     try:
                         random.seed(config["seed"]); np.random.seed(config["seed"])
                         torch.manual_seed(config["seed"]); torch.cuda.manual_seed_all(config["seed"])
                         result, skipped = run_one(record, args.manifest.resolve().parent, output_root, config, lazy, profile)
                         results.append(dict(sample_id=record["sample_id"], status="completed", resumed=skipped, metrics=result["metrics"]))
-                        print(record["sample_id"], "resumed" if skipped else "completed", result["metrics"], flush=True)
+                        print(f"[{idx}/{len(records)}] {record['sample_id']}", "resumed" if skipped else f"completed ({result['seconds']}s)", result["metrics"], flush=True)
                     except Exception as error:
                         results.append(dict(sample_id=record["sample_id"], status="failed", error=str(error)))
                         print("FAILED:", record["sample_id"], str(error), flush=True)
                     (output_root / "summary.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
                     log.flush()
-                    backup(output_root, args.backup_dir)
-                    needs_final_backup = False
+                    if results[-1]["status"] == "failed" or idx == len(records) or (args.backup_every > 0 and idx % args.backup_every == 0):
+                        backup(output_root, args.backup_dir)
+                        dirty_backup = False
                     if results[-1]["status"] == "failed":
                         raise RuntimeError("Stopped after failed sample; inspect pipeline.log/failure.json before retrying")
             finally:
                 log.flush()
-                if needs_final_backup:
+                if dirty_backup:
                     backup(output_root, args.backup_dir)
     print("Results:", output_root, flush=True)
 

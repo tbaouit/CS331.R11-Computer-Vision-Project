@@ -1,10 +1,11 @@
 {
   "seed": 42,
   "pipeline_mode": "improved",
-  "pix2gestalt_samples": 3,
+  "pix2gestalt_samples": 2,
+  "pix2gestalt_ddim_steps": 100,
   "roi_context_scale": 3.8,
   "carvekit_alpha_threshold": 0.48,
-  "prior_refine_strength": 0.42,
+  "prior_refine_strength": 0.24,
   "dropout_refine_strength": 0.78,
   "inpainting_model_id": "sd2-community/stable-diffusion-2-inpainting",
   "clip_model_id": "openai/clip-vit-base-patch32",

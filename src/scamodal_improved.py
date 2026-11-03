@@ -23,10 +23,12 @@ read here) and keeping `upstream/` + `runtime/` byte-identical:
 from __future__ import annotations
 
 from collections import deque
+import inspect
 import json
 import os
 from pathlib import Path
 import re
+import time
 from typing import Optional
 
 import numpy as np
@@ -238,6 +240,42 @@ def _inpaint_holes(rgb: np.ndarray, hole_mask: np.ndarray, radius: int = 7) -> n
     blurred = np.asarray(Image.fromarray(filled).filter(ImageFilter.GaussianBlur(radius=2)))
     out = rgb.copy()
     out[holes] = blurred[holes]
+    return out
+
+
+def _gaussian_blur_rgb(rgb: np.ndarray, sigma: float = 4.0) -> np.ndarray:
+    """Return float32 Gaussian-blurred RGB image."""
+    if cv2 is not None:
+        return cv2.GaussianBlur(rgb.astype(np.float32), (0, 0), sigmaX=float(sigma), sigmaY=float(sigma))
+    pil_blurred = Image.fromarray(rgb.astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius=float(sigma)))
+    return np.asarray(pil_blurred, dtype=np.float32)
+
+
+def lock_low_frequency_to_prior(
+    seed_rgb: np.ndarray,
+    sd_rgb: np.ndarray,
+    lock_mask: np.ndarray,
+    max_low_shift: float = 10.0,
+    high_gain: float = 0.60,
+) -> np.ndarray:
+    """Anchor low-frequency color/structure to `seed_rgb` while transferring crisp SD2 micro-detail.
+
+    Prevents Stable Diffusion from hallucinating foreign objects (e.g. food inside an
+    empty container or gray patches on dark clothing) wherever Pix2Gestalt already
+    synthesized valid underlying object appearance.
+    """
+    mask = np.asarray(lock_mask, dtype=bool)
+    if not mask.any():
+        return sd_rgb.copy()
+    seed_f = seed_rgb.astype(np.float32)
+    sd_f = sd_rgb.astype(np.float32)
+    seed_low = _gaussian_blur_rgb(seed_rgb, sigma=4.0)
+    sd_low = _gaussian_blur_rgb(sd_rgb, sigma=4.0)
+    sd_high = np.clip(sd_f - sd_low, -24.0, 24.0)
+    low_delta = np.clip(sd_low - seed_low, -float(max_low_shift), float(max_low_shift)) * 0.35
+    fused = np.clip(seed_f + low_delta + float(high_gain) * sd_high, 0.0, 255.0).astype(np.uint8)
+    out = sd_rgb.copy()
+    out[mask] = fused[mask]
     return out
 
 
@@ -627,14 +665,17 @@ def build_vlm_visual_prompts(
     image: np.ndarray,
     visible_mask: np.ndarray,
     amodal_mask: np.ndarray,
-    target_size: int = 448,
+    target_size: int = 384,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Create zoomed visual prompts so Qwen3-VL never confuses target vs occluder.
+    """Create zoomed visual prompts with foreground occluders completely censored.
 
     Returns:
       - `context_rgb`: square crop around `amodal_mask` where `visible_mask` is
         at 100% brightness inside a bright green contour, `missing_mask` is
-        outlined in yellow, and non-target background/occluders are dimmed 0.42x.
+        completely masked out with diagonal slate stripes inside a yellow contour
+        (so foreground occluders such as food inside a tray, a microphone, or a
+        vehicle never leak into VLM reasoning/critique), and exterior context is
+        dimmed 0.35x.
       - `isolated_rgb`: tight square crop of `visible_mask` isolated on pure white.
       - `panel_rgb`: side-by-side diagnostic image saved as `vlm_visual_prompt.jpg`.
     """
@@ -642,7 +683,16 @@ def build_vlm_visual_prompts(
     amodal = np.asarray(amodal_mask, dtype=bool)
     missing = amodal & (~vis)
 
-    highlighted = (image.astype(np.float32) * 0.40).astype(np.uint8)
+    highlighted = (image.astype(np.float32) * 0.35).astype(np.uint8)
+    if missing.any():
+        yy, xx = np.indices(vis.shape)
+        stripe = ((yy + xx) // 8) % 2 == 0
+        censor = np.where(
+            stripe[:, :, None],
+            np.array([112, 116, 122], dtype=np.uint8),
+            np.array([138, 142, 148], dtype=np.uint8),
+        )
+        highlighted[missing] = censor[missing]
     highlighted[vis] = image[vis]
 
     yellow_ring = _mask_outline(missing, thickness=2)
@@ -838,38 +888,41 @@ class ImprovedAmodalCompleter:
         resized_vis = ((resized_vis > 127).astype(np.uint8)) * 255
         rgb_vis_256 = np.repeat(resized_vis[:, :, None], 3, axis=2)
 
-        requested_samples = int(self.config.get("pix2gestalt_samples", 3))
+        requested_samples = int(self.config.get("pix2gestalt_samples", 2))
+        ddim_steps = int(self.config.get("pix2gestalt_ddim_steps", 100))
         n_samples = max(1, min(requested_samples, 4))
         if torch.cuda.is_available():
             free_bytes, _ = torch.cuda.mem_get_info()
             if free_bytes < int(4.5 * 1024**3):
                 n_samples = 1
 
+        p2g_kwargs = {
+            "model": predictor.model,
+            "device": predictor.device,
+            "input_im": resized_img,
+            "visible_mask": rgb_vis_256,
+            "n_samples": n_samples,
+        }
+        try:
+            if "ddim_steps" in inspect.signature(run_pix2gestalt).parameters:
+                p2g_kwargs["ddim_steps"] = ddim_steps
+        except Exception:
+            pass
+
         print(
             f"[Improved-Branch B] Pix2Gestalt ROI={roi['size']}x{roi['size']} "
-            f"(full_frame={roi['is_full_frame']}, n_samples={n_samples})..."
+            f"(full_frame={roi['is_full_frame']}, n_samples={n_samples}, ddim_steps={ddim_steps})..."
         )
         try:
             with torch.inference_mode():
-                samples_rgb_256 = run_pix2gestalt(
-                    model=predictor.model,
-                    device=predictor.device,
-                    input_im=resized_img,
-                    visible_mask=rgb_vis_256,
-                    n_samples=n_samples,
-                )
+                samples_rgb_256 = run_pix2gestalt(**p2g_kwargs)
         except RuntimeError as err:
             if "out of memory" in str(err).lower() and n_samples > 1:
                 print("[Improved-Branch B] VRAM tight for multi-sample; retrying with n_samples=1...")
                 torch.cuda.empty_cache()
+                p2g_kwargs["n_samples"] = 1
                 with torch.inference_mode():
-                    samples_rgb_256 = run_pix2gestalt(
-                        model=predictor.model,
-                        device=predictor.device,
-                        input_im=resized_img,
-                        visible_mask=rgb_vis_256,
-                        n_samples=1,
-                    )
+                    samples_rgb_256 = run_pix2gestalt(**p2g_kwargs)
             else:
                 raise
 
@@ -916,17 +969,19 @@ class ImprovedAmodalCompleter:
         instruction = (
             "You are analyzing a partially occluded target object for amodal appearance completion.\n"
             "- Image 1 shows the local scene where ONLY the target object's visible region is at full "
-            "brightness inside a BRIGHT GREEN outline, and the hidden region to reconstruct is outlined "
-            "in YELLOW. Surrounding objects and foreground occluders are darkened.\n"
+            "brightness inside a BRIGHT GREEN outline, and the occluded region to reconstruct is covered "
+            "by a DIAGONAL GRAY STRIPED CENSOR MASK inside a YELLOW outline.\n"
             "- Image 2 shows ONLY the target object's visible pixels isolated on a pure white background.\n"
             f"{hint_line}"
             "CRITICAL RULES:\n"
-            "1. Identify ONLY the BRIGHT GREEN target object shown in Image 2 — NEVER describe darkened "
-            "foreground occluders that sit inside the yellow region.\n"
-            "2. Write PROMPT as a concise (12-28 words) studio photo description of the COMPLETE, "
+            "1. Identify ONLY the BRIGHT GREEN target object shown in Image 2.\n"
+            "2. Write PROMPT as a concise (12-26 words) studio photo description of the COMPLETE, "
             "UNOCCLUDED target object isolated on a plain white background, matching the exact colors, "
             "materials, patterns, and lighting visible in Image 2.\n"
-            "3. Do NOT mention occluders, masks, green/yellow outlines, missing parts, or scene clutter in PROMPT.\n\n"
+            "3. If the target object is a container, takeout box, tray, bowl, plate, dish, or surface "
+            "whose interior was covered by the yellow-outlined censor mask, describe it as EMPTY and clean "
+            "inside (NEVER imagine food, sandwiches, or items inside it).\n"
+            "4. Do NOT mention occluders, masks, stripes, green/yellow outlines, or missing parts in PROMPT.\n\n"
             "Respond in this exact 3-line format:\n"
             "OBJECT: <short noun phrase naming the target object>\n"
             "OCCLUDED_PARTS: <one short sentence naming which part of the target object is hidden>\n"
@@ -1057,6 +1112,7 @@ class ImprovedAmodalCompleter:
         seed_canvas: np.ndarray,
         visible_mask: np.ndarray,
         amodal_mask: np.ndarray,
+        dropout_mask: np.ndarray,
         prompt: str,
         negative_prompt: str,
         strength: float,
@@ -1071,6 +1127,7 @@ class ImprovedAmodalCompleter:
         vis = np.asarray(visible_mask, dtype=bool)
         amodal = np.asarray(amodal_mask, dtype=bool)
         missing = amodal & (~vis)
+        dropout = np.asarray(dropout_mask, dtype=bool) & missing
         if not missing.any():
             return seed_canvas.copy()
 
@@ -1097,9 +1154,8 @@ class ImprovedAmodalCompleter:
         pil_img_512 = Image.fromarray(roi_img).resize((512, 512), Image.Resampling.LANCZOS)
         pil_mask_512 = Image.fromarray(roi_mask).resize((512, 512), Image.Resampling.NEAREST)
 
-        # Ensure enough effective steps for PNDM/DDIM when strength < 1.0.
-        eff_strength = float(np.clip(strength, 0.30, 1.0))
-        eff_steps = max(int(num_inference_steps), int(np.ceil(16.0 / eff_strength)))
+        eff_strength = float(np.clip(strength, 0.16, 1.0))
+        eff_steps = max(int(num_inference_steps), int(np.ceil(10.0 / eff_strength)))
 
         generator = torch.Generator(device=self.device).manual_seed(int(seed))
         with torch.inference_mode():
@@ -1121,6 +1177,20 @@ class ImprovedAmodalCompleter:
 
         out = seed_canvas.copy()
         out[missing] = synthesized_full[missing]
+
+        # Where Pix2Gestalt already produced valid foreground appearance (`~dropout_region`),
+        # lock low-frequency color/structure to `seed_canvas` and keep only crisp SD2 micro-detail
+        # so SD2 can NEVER hallucinate food, heads, or gray patches over valid Pix2Gestalt RGB!
+        dropout_region = _binary_dilate(dropout, 4) & missing
+        valid_prior_region = missing & (~dropout_region)
+        if valid_prior_region.any():
+            out = lock_low_frequency_to_prior(
+                seed_rgb=seed_canvas,
+                sd_rgb=out,
+                lock_mask=valid_prior_region,
+                max_low_shift=10.0,
+                high_gain=0.55,
+            )
 
         # Guard against outer-rim white background bleed on non-white objects.
         if ref_p90_luma < 212.0:
@@ -1148,11 +1218,12 @@ class ImprovedAmodalCompleter:
         instruction = (
             f"You are a strict quality critic for amodal object completion of a '{object_name}'.\n"
             "- Image 1 shows the reconstructed complete target object isolated on a white background.\n"
-            "- Image 2 shows the original local scene where the target object's visible region is outlined in BRIGHT GREEN.\n\n"
+            "- Image 2 shows the local scene where the target's visible region is inside a BRIGHT GREEN outline "
+            "and the removed foreground occluder is covered by a diagonal striped censor mask inside YELLOW.\n\n"
             "Evaluate ONLY the reconstructed target object in Image 1 on a 0-10 integer scale:\n"
             "1. STRUCTURAL: whole-object shape plausibility, natural proportions, and clean silhouette.\n"
-            "2. TEXTURE: color, material, and lighting continuity between visible and completed regions (penalize flat gray/white patches).\n"
-            "3. CONTEXT: semantic consistency with the BRIGHT GREEN target object's identity in Image 2.\n\n"
+            "2. TEXTURE: color, material, and lighting continuity between visible and completed regions (penalize flat gray patches or hallucinated foreign items).\n"
+            "3. CONTEXT: semantic consistency with the BRIGHT GREEN target object in Image 2 (note: if the target is a container/tray/dish, a clean EMPTY interior is 10/10 correct because the item inside was the removed occluder).\n\n"
             "Respond EXACTLY in this 4-line format:\n"
             "STRUCTURAL: <int>\n"
             "TEXTURE: <int>\n"
@@ -1224,6 +1295,7 @@ class ImprovedAmodalCompleter:
     ) -> dict:
         import torch
 
+        t0 = time.perf_counter()
         h, w = image.shape[:2]
         vis = np.asarray(visible_mask, dtype=bool)
         pad_info = {
@@ -1237,7 +1309,9 @@ class ImprovedAmodalCompleter:
             (job_dir / "outpainting.json").write_text(json.dumps(pad_info, indent=2), encoding="utf-8")
 
         # 1. Branch B — Context-aware ROI Pix2Gestalt + smooth consensus shape.
+        t_shape0 = time.perf_counter()
         shape_out = self._predict_shape_and_prior(image, vis, job_dir)
+        t_shape = time.perf_counter() - t_shape0
         amodal_mask = shape_out["amodal_mask"]
         missing_mask = amodal_mask & (~vis)
 
@@ -1272,13 +1346,15 @@ class ImprovedAmodalCompleter:
             p2g_alpha_full=shape_out["p2g_alpha_full"],
         )
         seed_canvas = prior_info["seed_canvas"]
+        dropout_mask = prior_info["dropout_mask"]
         dropout_frac = float(prior_info["dropout_fraction"])
         if job_dir is not None:
             Image.fromarray(seed_canvas).save(job_dir / "prior_rgb.png")
 
         # 3. Branch A — Mask-guided Qwen3-VL reasoning + square-padded CLIP verify.
+        t_vlm0 = time.perf_counter()
         print("[Improved-Branch A] Mask-guided semantic reasoning (Qwen3-VL)...")
-        context_rgb, isolated_rgb, panel_rgb = build_vlm_visual_prompts(image, vis, amodal_mask)
+        context_rgb, isolated_rgb, panel_rgb = build_vlm_visual_prompts(image, vis, amodal_mask, target_size=384)
         if job_dir is not None:
             Image.fromarray(panel_rgb).save(job_dir / "vlm_visual_prompt.jpg")
 
@@ -1288,6 +1364,7 @@ class ImprovedAmodalCompleter:
             (job_dir / "reasoning.txt").write_text(parsed_vlm["raw"], encoding="utf-8")
 
         base_prompt, clip_info = self._verify_prompt_clip(isolated_rgb, parsed_vlm, user_query=text_query)
+        t_vlm = time.perf_counter() - t_vlm0
         if job_dir is not None:
             (job_dir / "prompt_selection.json").write_text(
                 json.dumps({"prompt": base_prompt, "parsed_vlm": parsed_vlm, "clip_verification": clip_info}, indent=2),
@@ -1295,21 +1372,29 @@ class ImprovedAmodalCompleter:
             )
 
         # 4. Hybrid ROI SD2 refinement + Target-Aware Critic loop (keeping best-scored attempt).
+        t_syn0 = time.perf_counter()
         sd_tok = self.cls._pipe.tokenizer
         prompt = _truncate_tokens_clean(
             f"{base_prompt}, studio object photography on plain white background, sharp texture, natural colors",
             sd_tok,
             max_tokens=70,
         )
-        neg_prompt = _truncate_tokens_clean(DEFAULT_NEGATIVE_PROMPT, sd_tok, max_tokens=70)
+        obj_lower = f"{parsed_vlm['object_name']} {base_prompt}".lower()
+        extra_neg = (
+            ", food, sandwich, meat, onions, toppings, filled container"
+            if any(k in obj_lower for k in ("container", "tray", "takeout", "box", "bowl", "plate", "dish"))
+            else ""
+        )
+        neg_prompt = _truncate_tokens_clean(DEFAULT_NEGATIVE_PROMPT + extra_neg, sd_tok, max_tokens=70)
 
         base_strength = (
             float(self.config.get("dropout_refine_strength", 0.78))
             if dropout_frac >= 0.20
-            else float(self.config.get("prior_refine_strength", 0.42))
+            else float(self.config.get("prior_refine_strength", 0.24))
         )
-        guidance_scale = 6.8 if dropout_frac < 0.20 else 7.5
-        num_steps = 36
+        strength_step = 0.12 if dropout_frac >= 0.20 else 0.08
+        guidance_scale = 6.0 if dropout_frac < 0.20 else 7.5
+        num_steps = 28
         base_seed = int(self.config.get("seed", 42))
         enable_critic = bool(self.config.get("enable_critic", True))
         critique_threshold = float(self.config.get("critique_threshold", 7.0))
@@ -1323,7 +1408,7 @@ class ImprovedAmodalCompleter:
 
         for crit_iter in range(n_iters):
             attempts += 1
-            iter_strength = min(base_strength + 0.18 * crit_iter, 0.90)
+            iter_strength = min(base_strength + strength_step * crit_iter, 0.90)
             print(
                 f"[Improved-Synthesis] Attempt {crit_iter + 1}/{n_iters} "
                 f"(strength={iter_strength:.2f}, dropout={dropout_frac:.2f}, guidance={guidance_scale:.1f})"
@@ -1335,6 +1420,7 @@ class ImprovedAmodalCompleter:
                 seed_canvas=seed_canvas,
                 visible_mask=vis,
                 amodal_mask=amodal_mask,
+                dropout_mask=dropout_mask,
                 prompt=prompt,
                 negative_prompt=neg_prompt,
                 strength=iter_strength,
@@ -1353,7 +1439,7 @@ class ImprovedAmodalCompleter:
                 best_rgba = rgba
                 break
 
-            critic_crop = compose_cropped_for_critic(blended_rgb, amodal_mask)
+            critic_crop = compose_cropped_for_critic(blended_rgb, amodal_mask, target_size=384)
             if job_dir is not None:
                 Image.fromarray(critic_crop).save(job_dir / f"critic_input_{attempts:02d}.png")
 
@@ -1389,7 +1475,14 @@ class ImprovedAmodalCompleter:
                     sd_tok,
                     max_tokens=70,
                 )
-            guidance_scale = min(guidance_scale + 1.0, 9.5)
+            guidance_scale = min(guidance_scale + 1.0, 9.0)
+
+        t_syn = time.perf_counter() - t_syn0
+        t_total = time.perf_counter() - t0
+        print(
+            f"[Timing] shape={t_shape:.1f}s | vlm={t_vlm:.1f}s | sd2+critic={t_syn:.1f}s | total={t_total:.1f}s",
+            flush=True,
+        )
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
