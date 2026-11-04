@@ -38,7 +38,7 @@ class OracleMaskPipelineTests(unittest.TestCase):
                     "amodal_mask": amodal,
                     "critique_history": [{"score": 9.0}],
                     "final_score": 9.0,
-                    "_trace": {"pad_info": {}, "backend": "SCAmodal Oracle-Mask"},
+                    "_trace": {"pad_info": {}, "backend": "Oracle-Mask"},
                 }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -146,19 +146,10 @@ class OracleMaskPipelineTests(unittest.TestCase):
         fake_torch = types.ModuleType("torch")
         fake_torch.cuda = types.SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None)
 
-        class FakeBase:
-            device = "cpu"
-            _pipe = types.SimpleNamespace(tokenizer=None)
-
-            @staticmethod
-            def _finalize_rgba(rgb, mask, h, w):
-                out = np.zeros((h, w, 4), dtype=np.uint8)
-                out[:, :, :3] = rgb
-                out[:, :, 3] = mask.astype(np.uint8) * 255
-                return out
+        fake_models = types.SimpleNamespace(device="cpu", pipe=types.SimpleNamespace(tokenizer=None))
 
         completer = OracleMaskAmodalCompleter(
-            FakeBase(),
+            fake_models,
             config={"seed": 42, "enable_critic": True, "critique_threshold": 8.5, "max_critic_iter": 2},
         )
 
@@ -229,13 +220,13 @@ class OracleMaskPipelineTests(unittest.TestCase):
                     json.dumps([{"sample_id": "s1", "name": "luggage", "gt_amodal": "s1/gt_amodal.png", "gt_hidden": "s1/gt_hidden.png"}]),
                     encoding="utf-8",
                 )
-                scamodal_root = root / "scamodal"
+                runs_root = root / "runs"
                 for prof, mode, aiou, hiou, fill_val in [
-                    ("1111111111111111", "upstream_baseline", 0.68, 0.27, 150),
+                    ("1111111111111111", "baseline", 0.68, 0.27, 150),
                     ("2222222222222222", "improved", 0.77, 0.40, 58),
                     ("3333333333333333", "oracle_mask", 1.00, 1.00, 46),
                 ]:
-                    jdir = scamodal_root / prof / "s1" / "abcdef123456"
+                    jdir = runs_root / prof / "s1" / "abcdef123456"
                     jdir.mkdir(parents=True)
                     Image.fromarray(img).save(jdir / "input.png")
                     Image.fromarray(vis.astype(np.uint8) * 255).save(jdir / "visible.png")
@@ -264,15 +255,15 @@ class OracleMaskPipelineTests(unittest.TestCase):
                         encoding="utf-8",
                     )
 
-                grid_out = scamodal_root / "comparison_grid.jpg"
+                grid_out = runs_root / "comparison_grid.jpg"
                 proc = subprocess.run(
                     [
                         sys.executable,
                         str(ROOT / "scripts/compare_runs.py"),
                         "--manifest",
                         str(manifest_path),
-                        "--scamodal-root",
-                        str(scamodal_root),
+                        "--runs-root",
+                        str(runs_root),
                         "--output-grid",
                         str(grid_out),
                     ],

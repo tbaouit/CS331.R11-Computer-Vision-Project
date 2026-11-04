@@ -54,3 +54,4 @@ def compute_appearance_coherence_metrics(
         "seam_mae": round(seam_mae, 3),
         "color_hist_sim": round(color_hist_sim, 4),
     }
+

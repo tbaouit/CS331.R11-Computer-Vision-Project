@@ -1,4 +1,5 @@
 """Evaluation runner, metrics, and multi-profile run comparison."""
+from src.evaluation.appearance_metrics import compute_visible_appearance_metrics
 from src.evaluation.comparison import (
     auto_restore_drive_backups,
     compare_profiles,
@@ -22,6 +23,7 @@ __all__ = [
     "auto_restore_drive_backups",
     "compare_profiles",
     "compute_appearance_coherence_metrics",
+    "compute_visible_appearance_metrics",
     "crop_original",
     "discover_profiles_by_mode",
     "iou",

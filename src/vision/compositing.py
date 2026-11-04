@@ -7,6 +7,14 @@ from src.vision.image_ops import binary_dilate, gaussian_blur_rgb, resize_array
 from src.vision.roi import extract_square_roi, mask_bbox
 
 
+def finalize_rgba(rgb: np.ndarray, amodal_mask: np.ndarray, h: int, w: int) -> np.ndarray:
+    """Pack the completed RGB and the amodal mask (as alpha 0/255) into an HxWx4 uint8 image."""
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    rgba[:, :, :3] = rgb
+    rgba[:, :, 3] = (amodal_mask * 255).astype(np.uint8)
+    return rgba
+
+
 def lock_low_frequency_to_prior(
     seed_rgb: np.ndarray,
     sd_rgb: np.ndarray,
@@ -104,3 +112,4 @@ def compose_cropped_for_critic(
     }
     patch = extract_square_roi(canvas, roi, pad_value=255)
     return resize_array(patch, (target_size, target_size), mode="linear")
+

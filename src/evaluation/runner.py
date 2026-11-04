@@ -37,7 +37,7 @@ def crop_original(array, pad, original_shape):
 
 def preview(image, visible, amodal, rgba, path, mask_label="Amodal prediction"):
     tiles = [image, visible.astype(np.uint8) * 255, amodal.astype(np.uint8) * 255, rgba]
-    labels = ["Input", "Visible input", mask_label, "SCAmodal completion"]
+    labels = ["Input", "Visible input", mask_label, "Completion"]
     canvas = Image.new("RGB", (1120, 310), "white")
     draw = ImageDraw.Draw(canvas)
     for index, (tile, label) in enumerate(zip(tiles, labels)):
@@ -138,15 +138,10 @@ def run_one(record, sample_root, output_root, config, backend, profile):
             visible_exact_fraction=float(np.all(rgba[:, :, :3][visible] == image[visible], axis=1).mean()),
         )
         if config.get("appearance_metrics"):
-            from metrics_utils import calculate_clip_score, calculate_feature_similarity, calculate_lpips, calculate_ssim
+            from src.evaluation.appearance_metrics import compute_visible_appearance_metrics
 
-            original_v = np.where(visible[:, :, None], image, 0).astype(np.uint8)
-            completed_v = np.where(visible[:, :, None], rgba[:, :, :3], 0).astype(np.uint8)
             metrics.update(
-                CLIP_score=calculate_clip_score(rgba[:, :, :3], record.get("name", "object")),
-                LPIPS=calculate_lpips(completed_v, original_v),
-                Feature_Similarity=calculate_feature_similarity(completed_v, original_v),
-                SSIM=calculate_ssim(completed_v, original_v),
+                compute_visible_appearance_metrics(image, rgba[:, :, :3], visible, record.get("name", "object"))
             )
         mask_lbl = "Exact Amodal (Vis+Occ)" if oracle_mode else "Amodal prediction"
         preview(image, visible, amodal, rgba, job / "preview.jpg", mask_label=mask_lbl)
@@ -192,3 +187,4 @@ def run_one(record, sample_root, output_root, config, backend, profile):
             encoding="utf-8",
         )
         raise
+

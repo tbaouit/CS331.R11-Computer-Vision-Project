@@ -2,6 +2,7 @@
 from src.vision.compositing import (
     adaptive_seam_blend,
     compose_cropped_for_critic,
+    finalize_rgba,
     lock_low_frequency_to_prior,
 )
 from src.vision.image_ops import (
@@ -34,6 +35,7 @@ __all__ = [
     "compute_square_roi",
     "extract_square_roi",
     "fill_small_internal_holes",
+    "finalize_rgba",
     "gaussian_blur_rgb",
     "inpaint_holes",
     "keep_connected_to_anchor",
@@ -44,3 +46,4 @@ __all__ = [
     "paste_square_roi",
     "resize_array",
 ]
+

@@ -85,3 +85,4 @@ class CocoaDataset:
             for index, region in enumerate(annotation["regions"]):
                 yield Target(self.split, image["id"], annotation["id"], index,
                              self.image_dir / filename, image["width"], image["height"], region)
+

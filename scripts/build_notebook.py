@@ -1,22 +1,34 @@
 import json
 from pathlib import Path
-ROOT = Path(__file__).resolve().parents[1]
 
+ROOT = Path(__file__).resolve().parents[1]
 REPO_URL = "https://github.com/tbaouit/CS331.R11-Computer-Vision-Project.git"
+
 
 def main():
     cells = []
-    def md(text): cells.append(dict(cell_type="markdown", metadata={}, source=text.splitlines(keepends=True)))
-    def code(text): cells.append(dict(cell_type="code", metadata={}, source=text.splitlines(keepends=True), outputs=[], execution_count=None))
-    md(f"""# Full SCAmodal — COCO-A Zero-Shot Amodal Completion (Baseline & Improved)
-Qwen3-VL reasoning → Pix2Gestalt/CarveKit → Hybrid SD2 ROI refinement → Qwen3-VL critic.
+
+    def md(text):
+        cells.append(dict(cell_type="markdown", metadata={}, source=text.splitlines(keepends=True)))
+
+    def code(text):
+        cells.append(
+            dict(
+                cell_type="code",
+                metadata={},
+                source=text.splitlines(keepends=True),
+                outputs=[],
+                execution_count=None,
+            )
+        )
+
+    md(f"""# CS331 — Open-World Amodal Appearance Completion on COCO-A
+Qwen3-VL semantic reasoning → Pix2Gestalt / CarveKit prior → Hybrid SD2 ROI refinement → Qwen3-VL target-aware critic.
 - **Code**: clone / `git pull` trực tiếp từ GitHub (`{REPO_URL}`). Mỗi lần cập nhật code trên GitHub chỉ cần chạy lại **Ô 2** để pull bản mới nhất.
-- **Dataset**: giữ `cocoa_dataset.zip` trên Google Drive tại `MyDrive/CS331/cocoa_dataset.zip` hoặc `MyDrive/amodal_project/cocoa_dataset.zip` (chỉ copy & giải nén 1 lần cho mỗi phiên runtime).
+- **Dataset**: giữ `cocoa_dataset.zip` trên Google Drive tại `MyDrive/CS331/cocoa_dataset.zip` hoặc `MyDrive/amodal_project/cocoa_dataset.zip`.
 - **Chế độ chạy**:
-  - `configs/scamodal.json` (`pipeline_mode = "improved"`): tự đoán cả vùng bị che lẫn ngoại hình.
-  - `configs/scamodal_oracle_mask.json` (`pipeline_mode = "oracle_mask"`): **nhận thẳng mask phần bị che từ input** (`gt_hidden` / `occluded_mask`) theo thiết lập Mask-Guided Amodal Appearance Completion.
-  - `configs/scamodal_baseline.json` (`pipeline_mode = "upstream_baseline"`): bản gốc của tác giả để đối chiếu.
-- Dùng runtime có GPU, ưu tiên A100 + High RAM. Chạy từng ô; dừng ở lỗi đầu tiên.
+  - `configs/improved.json` (`pipeline_mode = "improved"`): tự dự đoán cả vùng bị che lẫn ngoại hình.
+  - `configs/oracle_mask.json` (`pipeline_mode = "oracle_mask"`): **nhận thẳng mask phần bị che từ input** (`gt_hidden` / `occluded_mask`) theo thiết lập Mask-Guided Amodal Appearance Completion.
 """)
     md("## 1. GPU và Google Drive")
     code("""import subprocess, sys, os, shutil, zipfile, json, base64
@@ -57,7 +69,7 @@ if os.environ.get("GITHUB_TOKEN"):
 if (PROJECT / ".git").is_dir():
     print("Updating existing repository via git pull...", flush=True)
     sh(*git_cmd, "-C", PROJECT, "fetch", "origin", BRANCH)
-    sh(*git_cmd, "-C", PROJECT, "pull", "--ff-only", "origin", BRANCH)
+    sh(*git_cmd, "-C", PROJECT, "reset", "--hard", f"origin/{{BRANCH}}")
 elif PROJECT.exists() and any(PROJECT.iterdir()):
     print("Initializing git tracking on existing /content/cs331 directory...", flush=True)
     sh("git", "-C", PROJECT, "init", "-b", BRANCH)
@@ -98,41 +110,26 @@ else:
 
 print("Free GiB:", round(shutil.disk_usage(PROJECT).free / 1024**3, 1))
 """)
-    md("## 3. Setup môi trường riêng + checkpoint + preflight\nCó thể mất nhiều phút ở lần đầu của runtime. Không chạy ô setup thứ hai song song. Chưa có full inference cho tới ô 6.")
-    code("""sh(sys.executable, "scripts/setup_scamodal_colab.py")
+    md("## 3. Setup môi trường riêng + checkpoint + unit tests\nNếu phiên Colab đang chạy đã cài xong `.venv-gpu`, chỉ cần chạy dòng unit test thứ 2.")
+    code("""sh(sys.executable, "scripts/setup_colab.py")
 sh(PYTHON, "-m", "unittest", "discover", "-s", "tests", "-v")
 """)
-    md("## 4. Chuẩn bị 10 đối tượng train\nChỉ image.png và visible.png vào mô hình; GT chỉ dùng sau inference.")
+    md("## 4. Chuẩn bị 10 đối tượng train")
     code("""sh(PYTHON, "scripts/prepare_data.py", "--verify-hashes")
 from PIL import Image
 from IPython.display import display
 display(Image.open(PROJECT / "outputs/train_smoke/contact_sheet.jpg"))
-print((PROJECT / "configs/scamodal.json").read_text())
+print((PROJECT / "configs/oracle_mask.json").read_text())
 """)
-    md("## 5. Restore backup nếu tiếp tục phiên cũ (tùy chọn)\nĐể RESTORE=None nếu chạy mới. Nhập đúng tên ZIP muốn khôi phục; không trộn profile/config.")
-    code("""RESTORE = None  # e.g. "scamodal_<profile>_<timestamp>.zip"
-if RESTORE:
-    source = DRIVE / "results" / RESTORE
-    profile = source.name.split("_")[1]
-    if len(profile) != 16 or any(c not in "0123456789abcdef" for c in profile):
-        raise ValueError("Unexpected profile in backup filename")
-    destination = PROJECT / "outputs/scamodal" / profile
-    destination.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(source) as bundle:
-        for item in bundle.infolist():
-            if not (destination / item.filename).resolve().is_relative_to(destination.resolve()):
-                raise ValueError("Unsafe archive path")
-        bundle.extractall(destination)
-    print("Restored:", destination)
+    md("## 5A. Chạy pipeline chuyên biệt nhận thẳng Mask phần bị che từ Input (`oracle_mask`)")
+    code("""sh(PYTHON, "scripts/run_experiment.py", "--manifest", "outputs/train_smoke/manifest.json", "--config", "configs/oracle_mask.json", "--limit", "10", "--backup-dir", str(DRIVE / "results"))
 """)
-    md("## 6A. Chạy pipeline Blind Improved trên tập smoke (10 mẫu — tự đoán mask)")
-    code("""sh(PYTHON, "scripts/run_scamodal.py", "--manifest", "outputs/train_smoke/manifest.json", "--config", "configs/scamodal.json", "--limit", "10", "--backup-dir", str(DRIVE / "results"))
+    md("## 5B. Chạy pipeline Blind Improved (tự đoán mask + khôi phục diện mạo)")
+    code("""sh(PYTHON, "scripts/run_experiment.py", "--manifest", "outputs/train_smoke/manifest.json", "--config", "configs/improved.json", "--limit", "10", "--backup-dir", str(DRIVE / "results"))
 """)
-    md("## 6B. Chạy pipeline chuyên biệt nhận thẳng Mask phần bị che từ Input (`oracle_mask`)\nDùng trực tiếp `gt_hidden` làm `occluded_mask` đầu vào (hình dáng chuẩn 100%, tốc độ nhanh gấp ~2 lần, tập trung tối đa vào độ chính xác màu sắc & kết cấu).")
-    code("""sh(PYTHON, "scripts/run_scamodal.py", "--manifest", "outputs/train_smoke/manifest.json", "--config", "configs/scamodal_oracle_mask.json", "--limit", "10", "--backup-dir", str(DRIVE / "results"))
-""")
-    md("## 7. Kiểm tra toàn bộ output của profile vừa chạy")
-    code("""profiles = sorted([p for p in (PROJECT / "outputs/scamodal").iterdir() if p.is_dir() and list(p.glob("*/*/result.json"))],
+    md("## 6. Kiểm tra toàn bộ output của profile vừa chạy")
+    code("""runs_dir = PROJECT / "outputs/runs"
+profiles = sorted([p for p in runs_dir.iterdir() if p.is_dir() and list(p.glob("*/*/result.json"))],
                   key=lambda d: max(f.stat().st_mtime for f in d.glob("*/*/result.json")))
 if not profiles: raise RuntimeError("No successful output; inspect pipeline.log and failure.json")
 latest_profile = profiles[-1]
@@ -143,18 +140,29 @@ for res_file in sorted(latest_profile.glob("*/*/result.json")):
     print(f"=== {res['sample_id']} ({res.get('name')}) | Amodal IoU={m['amodal_iou']:.4f} | Hidden IoU={m['hidden_iou']:.4f} | Score={res.get('final_score')} ===")
     display(Image.open(res_file.parent / "preview.jpg"))
 """)
-    md("## 8. So sánh trực tiếp Baseline vs Improved (bảng số liệu + lưới ảnh)\nTự động khôi phục các bản backup trước đó từ Google Drive (`DRIVE / 'results'`) nếu chưa có đủ cả hai profile trong `outputs/scamodal/`.")
+    md("## 7. So sánh trực tiếp các chế độ (bảng số liệu + lưới ảnh)\nTự động khôi phục các bản backup từ Google Drive (`DRIVE / 'results'`) để xuất bảng và lưới so sánh vào `outputs/runs/comparison_grid.jpg`.")
     code("""sh(PYTHON, "scripts/compare_runs.py", "--backup-dir", str(DRIVE / "results"))
-display(Image.open(PROJECT / "outputs/scamodal/comparison_grid.jpg"))
+display(Image.open(PROJECT / "outputs/runs/comparison_grid.jpg"))
 """)
     for i, cell in enumerate(cells):
-        cell["id"] = f"scamodal-{i:02d}"
-        if cell["cell_type"] == "code": compile("".join(cell["source"]), f"cell_{i}", "exec")
-    doc = dict(cells=cells, metadata=dict(accelerator="GPU", kernelspec=dict(name="python3", display_name="Python 3"),
-                                          language_info=dict(name="python")), nbformat=4, nbformat_minor=5)
-    target = ROOT / "notebooks/SCAmodal_Colab.ipynb"
+        cell["id"] = f"amodal-{i:02d}"
+        if cell["cell_type"] == "code":
+            compile("".join(cell["source"]), f"cell_{i}", "exec")
+    doc = dict(
+        cells=cells,
+        metadata=dict(
+            accelerator="GPU",
+            kernelspec=dict(name="python3", display_name="Python 3"),
+            language_info=dict(name="python"),
+        ),
+        nbformat=4,
+        nbformat_minor=5,
+    )
+    target = ROOT / "notebooks/Amodal_Completion_Colab.ipynb"
     target.parent.mkdir(exist_ok=True)
     target.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("Notebook generated and syntax checked")
+    print("Notebook generated and syntax checked:", target.relative_to(ROOT).as_posix())
 
-if __name__ == "__main__": main()
+
+if __name__ == "__main__":
+    main()

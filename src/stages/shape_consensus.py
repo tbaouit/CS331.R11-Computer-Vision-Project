@@ -172,3 +172,4 @@ def fuse_pix2gestalt_predictions(
             "runaway_clamped": runaway_clamped,
         },
     }
+

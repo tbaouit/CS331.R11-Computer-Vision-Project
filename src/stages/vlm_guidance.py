@@ -183,7 +183,7 @@ def _generate_qwen_vl(vlm, image_a: np.ndarray, image_b: np.ndarray, instruction
     from qwen_vl_utils import process_vision_info
 
     if vlm is None or vlm.model is None:
-        raise RuntimeError("Strict SCAmodal: Qwen3-VL model is not loaded.")
+        raise RuntimeError("Strict mode: Qwen3-VL model is not loaded.")
 
     messages = [
         {
@@ -424,3 +424,4 @@ def run_target_aware_critique(
 
     output_text = _generate_qwen_vl(vlm, critic_completed_rgb, context_highlight_rgb, instruction, max_new_tokens=120)
     return _parse_critic_response(output_text)
+

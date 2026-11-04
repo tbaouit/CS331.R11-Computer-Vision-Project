@@ -1,4 +1,0 @@
-# Preserve exact byte-for-byte SHA-256 checksums verified against upstream/provenance.json
-upstream/** -text
-runtime/** -text
-

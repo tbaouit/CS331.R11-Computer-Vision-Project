@@ -295,3 +295,4 @@ def build_oracle_appearance_seed(
         "color_bias": [round(float(x), 3) for x in bias],
         "ref_p90_luma": round(ref_p90_luma, 2),
     }
+

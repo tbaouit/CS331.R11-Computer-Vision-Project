@@ -215,3 +215,4 @@ def gaussian_blur_rgb(rgb: np.ndarray, sigma: float = 4.0) -> np.ndarray:
         return cv2.GaussianBlur(rgb.astype(np.float32), (0, 0), sigmaX=float(sigma), sigmaY=float(sigma))
     pil_blurred = Image.fromarray(rgb.astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius=float(sigma)))
     return np.asarray(pil_blurred, dtype=np.float32)
+

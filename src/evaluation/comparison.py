@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Optional
 import zipfile
 
@@ -15,10 +16,12 @@ DEFAULT_BACKUP_DIRS = [
     Path("/content/drive/MyDrive/CS331/results"),
     Path("/content/drive/MyDrive/amodal_project/results"),
 ]
+# Backup archives are named `<prefix>_<16-hex profile>_<UTC stamp>.zip` (see scripts/run_experiment.py).
+BACKUP_NAME_RE = re.compile(r"^[A-Za-z]+_(?P<profile>[0-9a-f]{16})_(?P<stamp>\d{8}T\d{6}Z)\.zip$")
 
 
-def auto_restore_drive_backups(scamodal_root: Path, extra_backup_dir: Optional[Path] = None) -> list[Path]:
-    """Extract the latest Google Drive backup archive for any profile missing from scamodal_root."""
+def auto_restore_drive_backups(runs_root: Path, extra_backup_dir: Optional[Path] = None) -> list[Path]:
+    """Extract the latest Google Drive backup archive for any profile missing from runs_root."""
     search_dirs: list[Path] = []
     if extra_backup_dir is not None:
         search_dirs.append(extra_backup_dir)
@@ -30,19 +33,18 @@ def auto_restore_drive_backups(scamodal_root: Path, extra_backup_dir: Optional[P
     for bdir in search_dirs:
         if not bdir.is_dir():
             continue
-        for zpath in sorted(bdir.glob("scamodal_*_*.zip"), key=lambda p: p.name):
-            parts = zpath.stem.split("_")
-            if len(parts) < 3:
+        for zpath in sorted(bdir.glob("*.zip"), key=lambda p: p.name):
+            match = BACKUP_NAME_RE.match(zpath.name)
+            if match is None:
                 continue
-            profile = parts[1]
-            if len(profile) == 16 and all(c in "0123456789abcdef" for c in profile):
-                prev = latest_zip_by_profile.get(profile)
-                if prev is None or zpath.name >= prev.name:
-                    latest_zip_by_profile[profile] = zpath
+            profile = match.group("profile")
+            prev = latest_zip_by_profile.get(profile)
+            if prev is None or match.group("stamp") >= BACKUP_NAME_RE.match(prev.name).group("stamp"):
+                latest_zip_by_profile[profile] = zpath
 
     restored: list[Path] = []
     for profile, zpath in sorted(latest_zip_by_profile.items()):
-        dest = scamodal_root / profile
+        dest = runs_root / profile
         existing_count = len(list(dest.glob("*/*/result.json"))) if dest.is_dir() else 0
         try:
             with zipfile.ZipFile(zpath) as bundle:
@@ -85,24 +87,24 @@ def load_profile_results(profile_dir: Path) -> tuple[str, str, dict[str, tuple[P
     return mode_kind, mode_label, results
 
 
-def resolve_profile_dir(spec: Optional[str], scamodal_root: Path) -> Optional[Path]:
+def resolve_profile_dir(spec: Optional[str], runs_root: Path) -> Optional[Path]:
     if not spec:
         return None
     cand = Path(spec)
     if cand.is_dir():
         return cand
-    cand2 = scamodal_root / spec
+    cand2 = runs_root / spec
     if cand2.is_dir():
         return cand2
     raise FileNotFoundError(f"Run directory not found: {spec}")
 
 
-def discover_profiles_by_mode(scamodal_root: Path, backup_dir: Optional[Path] = None) -> dict[str, list[Path]]:
-    scamodal_root.mkdir(parents=True, exist_ok=True)
-    auto_restore_drive_backups(scamodal_root, backup_dir)
-    profiles = [p for p in scamodal_root.iterdir() if p.is_dir() and list(p.glob("*/*/result.json"))]
+def discover_profiles_by_mode(runs_root: Path, backup_dir: Optional[Path] = None) -> dict[str, list[Path]]:
+    runs_root.mkdir(parents=True, exist_ok=True)
+    auto_restore_drive_backups(runs_root, backup_dir)
+    profiles = [p for p in runs_root.iterdir() if p.is_dir() and list(p.glob("*/*/result.json"))]
     if not profiles:
-        raise RuntimeError(f"No completed profile directories found under {scamodal_root}.")
+        raise RuntimeError(f"No completed profile directories found under {runs_root}.")
 
     by_mode: dict[str, list[Path]] = {"baseline": [], "improved": [], "oracle_mask": []}
     ordered = sorted(
@@ -466,7 +468,7 @@ def run_two_way_comparison(
 
 def compare_profiles(
     manifest_path: Path,
-    scamodal_root: Path,
+    runs_root: Path,
     output_grid: Path,
     backup_dir: Optional[Path] = None,
     baseline_spec: Optional[str] = None,
@@ -476,12 +478,12 @@ def compare_profiles(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     sample_root = manifest_path.resolve().parent
 
-    base_dir = resolve_profile_dir(baseline_spec, scamodal_root)
-    imp_dir = resolve_profile_dir(improved_spec, scamodal_root)
-    ora_dir = resolve_profile_dir(oracle_spec, scamodal_root)
+    base_dir = resolve_profile_dir(baseline_spec, runs_root)
+    imp_dir = resolve_profile_dir(improved_spec, runs_root)
+    ora_dir = resolve_profile_dir(oracle_spec, runs_root)
 
     if base_dir is None and imp_dir is None and ora_dir is None:
-        by_mode = discover_profiles_by_mode(scamodal_root, backup_dir)
+        by_mode = discover_profiles_by_mode(runs_root, backup_dir)
         if by_mode["baseline"] and by_mode["improved"] and by_mode["oracle_mask"]:
             run_three_way_comparison(
                 by_mode["baseline"][-1],
@@ -510,7 +512,7 @@ def compare_profiles(
         run_three_way_comparison(base_dir, imp_dir, ora_dir, manifest, sample_root, output_grid)
         return
     else:
-        by_mode = discover_profiles_by_mode(scamodal_root, backup_dir)
+        by_mode = discover_profiles_by_mode(runs_root, backup_dir)
         all_profs = [x for grp in by_mode.values() for x in grp]
         if ora_dir is not None and imp_dir is None:
             imp_dir = ora_dir
@@ -524,3 +526,4 @@ def compare_profiles(
             )
 
     run_two_way_comparison(base_dir, imp_dir, manifest, sample_root, output_grid)
+

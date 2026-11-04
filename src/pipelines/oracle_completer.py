@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import os
 from pathlib import Path
 import time
 from typing import Optional
@@ -12,6 +11,7 @@ import numpy as np
 from PIL import Image
 
 from src.evaluation.metrics import compute_appearance_coherence_metrics
+from src.models.pix2gestalt import load_run_pix2gestalt
 from src.stages.appearance_prior import build_oracle_appearance_seed
 from src.stages.sd2_refiner import refine_exact_mask_sd2_oracle
 from src.stages.shape_consensus import prepare_pix2gestalt_roi_inputs
@@ -23,17 +23,16 @@ from src.stages.vlm_guidance import (
     truncate_tokens_clean,
     verify_prompt_with_clip,
 )
-from src.vision.compositing import adaptive_seam_blend, compose_cropped_for_critic
+from src.vision.compositing import adaptive_seam_blend, compose_cropped_for_critic, finalize_rgba
 from src.vision.roi import compute_square_roi, paste_square_roi
 
 
 class OracleMaskAmodalCompleter:
     """Dedicated Mask-Guided Amodal Appearance Completer (`pipeline_mode = 'oracle_mask'`)."""
 
-    def __init__(self, base_completer, config: Optional[dict] = None):
-        self.base = base_completer
-        self.cls = base_completer.__class__
-        self.device = base_completer.device
+    def __init__(self, models, config: Optional[dict] = None):
+        self.models = models
+        self.device = models.device
         self.config = config or {}
 
     def _synthesize_amodal_prior(
@@ -44,15 +43,13 @@ class OracleMaskAmodalCompleter:
         job_dir: Optional[Path],
     ) -> dict:
         """Run 1 fast Pix2Gestalt pass on an `amodal_mask`-centered ROI for 3D RGB reference."""
-        import sys
         import torch
 
-        predictor = self.cls._shape_predictor
+        predictor = self.models.shape_predictor
         if predictor is None or predictor.model is None:
-            raise RuntimeError("Strict SCAmodal: Pix2Gestalt model is not loaded.")
+            raise RuntimeError("Strict mode: Pix2Gestalt model is not loaded.")
 
-        sys.path.insert(0, os.path.join(os.getcwd(), "pix2gestalt", "pix2gestalt"))
-        from inference import run_pix2gestalt
+        run_pix2gestalt = load_run_pix2gestalt()
 
         roi_scale = float(self.config.get("oracle_roi_scale", 1.65))
         roi = compute_square_roi(
@@ -119,7 +116,7 @@ class OracleMaskAmodalCompleter:
         blueprint_rgb: np.ndarray,
         user_query: str = "",
     ) -> dict[str, str]:
-        return run_oracle_vlm_reasoning(self.cls._vlm, context_rgb, blueprint_rgb, user_query=user_query)
+        return run_oracle_vlm_reasoning(self.models.vlm, context_rgb, blueprint_rgb, user_query=user_query)
 
     def _verify_prompt_clip(
         self,
@@ -128,8 +125,8 @@ class OracleMaskAmodalCompleter:
         user_query: str = "",
     ) -> tuple[str, dict]:
         return verify_prompt_with_clip(
-            clip_model=self.cls._clip_model,
-            clip_proc=self.cls._clip_processor,
+            clip_model=self.models.clip_model,
+            clip_proc=self.models.clip_processor,
             device=self.device,
             isolated_rgb=isolated_vis_rgb,
             parsed_vlm=parsed_vlm,
@@ -137,7 +134,7 @@ class OracleMaskAmodalCompleter:
         )
 
     def _refine_exact_mask_sd2(self, **kwargs) -> np.ndarray:
-        return refine_exact_mask_sd2_oracle(pipe=self.cls._pipe, device=self.device, **kwargs)
+        return refine_exact_mask_sd2_oracle(pipe=self.models.pipe, device=self.device, **kwargs)
 
     def _critique_target_aware(
         self,
@@ -146,7 +143,7 @@ class OracleMaskAmodalCompleter:
         object_name: str,
     ) -> dict:
         return run_target_aware_critique(
-            vlm=self.cls._vlm,
+            vlm=self.models.vlm,
             critic_completed_rgb=critic_completed_rgb,
             context_highlight_rgb=context_highlight_rgb,
             object_name=object_name,
@@ -185,7 +182,7 @@ class OracleMaskAmodalCompleter:
             (job_dir / "outpainting.json").write_text(json.dumps(pad_info, indent=2), encoding="utf-8")
 
         if not occ.any():
-            rgba = self.base._finalize_rgba(image, amodal_mask, h, w)
+            rgba = finalize_rgba(image, amodal_mask, h, w)
             if job_dir is not None:
                 (job_dir / "reasoning.txt").write_text("Empty occluded_mask input; nothing to restore.", encoding="utf-8")
                 (job_dir / "critique_history.json").write_text("[]", encoding="utf-8")
@@ -201,7 +198,7 @@ class OracleMaskAmodalCompleter:
                     "pad_info": pad_info,
                     "synthesis_attempts": 0,
                     "critique_history": [],
-                    "backend": "SCAmodal Oracle-Mask (Exact Input Occluded Mask)",
+                    "backend": "Oracle-Mask (Exact Input Occluded Mask)",
                 },
             }
 
@@ -250,7 +247,7 @@ class OracleMaskAmodalCompleter:
 
         # 3. Exact-mask 512x512 ROI SD2 refinement + Best-of-N Critic selection.
         t_syn0 = time.perf_counter()
-        sd_tok = self.cls._pipe.tokenizer
+        sd_tok = self.models.pipe.tokenizer
         prompt = truncate_tokens_clean(
             f"{base_prompt}, studio object photography on plain white background, sharp texture, natural colors",
             sd_tok,
@@ -311,7 +308,7 @@ class OracleMaskAmodalCompleter:
                 Image.fromarray(inpaint_img).save(job_dir / f"inpainting_{attempts:02d}.png")
 
             blended_rgb = adaptive_seam_blend(image, inpaint_img, vis, amodal_mask)
-            rgba = self.base._finalize_rgba(blended_rgb, amodal_mask, h, w)
+            rgba = finalize_rgba(blended_rgb, amodal_mask, h, w)
 
             if not enable_critic:
                 best_rgba = rgba
@@ -393,6 +390,7 @@ class OracleMaskAmodalCompleter:
                     "seam_mae": coherence["seam_mae"],
                     "color_hist_sim": coherence["color_hist_sim"],
                 },
-                "backend": "SCAmodal Oracle-Mask (Exact Input Occluded Mask)",
+                "backend": "Oracle-Mask (Exact Input Occluded Mask)",
             },
         }
+

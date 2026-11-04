@@ -111,3 +111,4 @@ def paste_square_roi(
     dst_x2 = dst_x1 + (src_x2 - src_x1)
     out[src_y1:src_y2, src_x1:src_x2] = scaled[dst_y1:dst_y2, dst_x1:dst_x2]
     return out
+

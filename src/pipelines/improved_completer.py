@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import os
 from pathlib import Path
 import time
 from typing import Optional
@@ -11,6 +10,7 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
+from src.models.pix2gestalt import load_run_pix2gestalt
 from src.stages.appearance_prior import build_appearance_prior
 from src.stages.sd2_refiner import refine_roi_sd2_blind
 from src.stages.shape_consensus import (
@@ -25,29 +25,26 @@ from src.stages.vlm_guidance import (
     truncate_tokens_clean,
     verify_prompt_with_clip,
 )
-from src.vision.compositing import adaptive_seam_blend, compose_cropped_for_critic
+from src.vision.compositing import adaptive_seam_blend, compose_cropped_for_critic, finalize_rgba
 from src.vision.roi import compute_square_roi
 
 
 class ImprovedAmodalCompleter:
-    """Zero-shot improved completer sharing loaded weights from `AmodalCompleter`."""
+    """Zero-shot improved completer sharing weights loaded once by `FoundationModels`."""
 
-    def __init__(self, base_completer, config: Optional[dict] = None):
-        self.base = base_completer
-        self.cls = base_completer.__class__
-        self.device = base_completer.device
+    def __init__(self, models, config: Optional[dict] = None):
+        self.models = models
+        self.device = models.device
         self.config = config or {}
 
     def _predict_shape_and_prior(self, image: np.ndarray, visible_mask: np.ndarray, job_dir: Optional[Path]) -> dict:
-        import sys
         import torch
 
-        predictor = self.cls._shape_predictor
+        predictor = self.models.shape_predictor
         if predictor is None or predictor.model is None:
-            raise RuntimeError("Strict SCAmodal: Pix2Gestalt model is not loaded.")
+            raise RuntimeError("Strict mode: Pix2Gestalt model is not loaded.")
 
-        sys.path.insert(0, os.path.join(os.getcwd(), "pix2gestalt", "pix2gestalt"))
-        from inference import run_pix2gestalt
+        run_pix2gestalt = load_run_pix2gestalt()
 
         context_scale = float(self.config.get("roi_context_scale", 3.8))
         roi = compute_square_roi(visible_mask, image.shape, context_scale=context_scale, min_crop=256)
@@ -119,7 +116,7 @@ class ImprovedAmodalCompleter:
         isolated_rgb: np.ndarray,
         user_query: str = "",
     ) -> dict[str, str]:
-        return run_blind_vlm_reasoning(self.cls._vlm, context_rgb, isolated_rgb, user_query=user_query)
+        return run_blind_vlm_reasoning(self.models.vlm, context_rgb, isolated_rgb, user_query=user_query)
 
     def _verify_prompt_clip(
         self,
@@ -128,8 +125,8 @@ class ImprovedAmodalCompleter:
         user_query: str = "",
     ) -> tuple[str, dict]:
         return verify_prompt_with_clip(
-            clip_model=self.cls._clip_model,
-            clip_proc=self.cls._clip_processor,
+            clip_model=self.models.clip_model,
+            clip_proc=self.models.clip_processor,
             device=self.device,
             isolated_rgb=isolated_rgb,
             parsed_vlm=parsed_vlm,
@@ -137,7 +134,7 @@ class ImprovedAmodalCompleter:
         )
 
     def _refine_roi_sd2(self, **kwargs) -> np.ndarray:
-        return refine_roi_sd2_blind(pipe=self.cls._pipe, device=self.device, **kwargs)
+        return refine_roi_sd2_blind(pipe=self.models.pipe, device=self.device, **kwargs)
 
     def _critique_target_aware(
         self,
@@ -146,7 +143,7 @@ class ImprovedAmodalCompleter:
         object_name: str,
     ) -> dict:
         return run_target_aware_critique(
-            vlm=self.cls._vlm,
+            vlm=self.models.vlm,
             critic_completed_rgb=critic_completed_rgb,
             context_highlight_rgb=context_highlight_rgb,
             object_name=object_name,
@@ -183,7 +180,7 @@ class ImprovedAmodalCompleter:
         missing_mask = amodal_mask & (~vis)
 
         if not missing_mask.any():
-            rgba = self.base._finalize_rgba(image, amodal_mask, h, w)
+            rgba = finalize_rgba(image, amodal_mask, h, w)
             if job_dir is not None:
                 (job_dir / "reasoning.txt").write_text("No missing region predicted.", encoding="utf-8")
                 (job_dir / "critique_history.json").write_text("[]", encoding="utf-8")
@@ -200,7 +197,7 @@ class ImprovedAmodalCompleter:
                     "synthesis_attempts": 0,
                     "critique_history": [],
                     "shape_diagnostics": shape_out["diagnostics"],
-                    "backend": "SCAmodal Improved (ROI + Mask-Guided VLM + Hybrid Prior)",
+                    "backend": "Blind Improved (ROI + Mask-Guided VLM + Hybrid Prior)",
                 },
             }
 
@@ -240,7 +237,7 @@ class ImprovedAmodalCompleter:
 
         # 4. Hybrid ROI SD2 refinement + Target-Aware Critic loop (keeping best-scored attempt).
         t_syn0 = time.perf_counter()
-        sd_tok = self.cls._pipe.tokenizer
+        sd_tok = self.models.pipe.tokenizer
         prompt = truncate_tokens_clean(
             f"{base_prompt}, studio object photography on plain white background, sharp texture, natural colors",
             sd_tok,
@@ -300,7 +297,7 @@ class ImprovedAmodalCompleter:
                 Image.fromarray(inpaint_img).save(job_dir / f"inpainting_{attempts:02d}.png")
 
             blended_rgb = adaptive_seam_blend(image, inpaint_img, vis, amodal_mask)
-            rgba = self.base._finalize_rgba(blended_rgb, amodal_mask, h, w)
+            rgba = finalize_rgba(blended_rgb, amodal_mask, h, w)
 
             if not enable_critic:
                 best_rgba = rgba
@@ -375,6 +372,7 @@ class ImprovedAmodalCompleter:
                     "color_bias": prior_info["color_bias"],
                     "ref_p90_luma": prior_info["ref_p90_luma"],
                 },
-                "backend": "SCAmodal Improved (ROI + Mask-Guided VLM + Hybrid Prior)",
+                "backend": "Blind Improved (ROI + Mask-Guided VLM + Hybrid Prior)",
             },
         }
+

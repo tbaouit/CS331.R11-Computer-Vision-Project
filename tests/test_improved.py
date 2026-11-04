@@ -227,12 +227,12 @@ class ImprovedPipelineTests(unittest.TestCase):
             manifest_path = smoke / "manifest.json"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-            scamodal_root = root / "scamodal"
+            runs_root = root / "runs"
             for prof, mode, aiou, hiou in [
-                ("1111111111111111", "upstream_baseline", 0.65, 0.40),
+                ("1111111111111111", "baseline", 0.65, 0.40),
                 ("2222222222222222", "improved", 0.88, 0.74),
             ]:
-                jdir = scamodal_root / prof / "s1" / "abcdef123456"
+                jdir = runs_root / prof / "s1" / "abcdef123456"
                 jdir.mkdir(parents=True)
                 for fn in ("input.png", "visible.png", "amodal.png"):
                     Image.fromarray(np.full((32, 32, 3), 120, dtype=np.uint8)).save(jdir / fn)
@@ -252,15 +252,15 @@ class ImprovedPipelineTests(unittest.TestCase):
                 }
                 (jdir / "result.json").write_text(json.dumps(res), encoding="utf-8")
 
-            grid_out = scamodal_root / "comparison_grid.jpg"
+            grid_out = runs_root / "comparison_grid.jpg"
             proc = subprocess.run(
                 [
                     sys.executable,
                     str(ROOT / "scripts/compare_runs.py"),
                     "--manifest",
                     str(manifest_path),
-                    "--scamodal-root",
-                    str(scamodal_root),
+                    "--runs-root",
+                    str(runs_root),
                     "--output-grid",
                     str(grid_out),
                 ],
@@ -282,19 +282,10 @@ class ImprovedPipelineTests(unittest.TestCase):
             empty_cache=lambda: None,
         )
 
-        class FakeBase:
-            device = "cpu"
-            _pipe = types.SimpleNamespace(tokenizer=None)
-
-            @staticmethod
-            def _finalize_rgba(rgb, mask, h, w):
-                out = np.zeros((h, w, 4), dtype=np.uint8)
-                out[:, :, :3] = rgb
-                out[:, :, 3] = mask.astype(np.uint8) * 255
-                return out
+        fake_models = types.SimpleNamespace(device="cpu", pipe=types.SimpleNamespace(tokenizer=None))
 
         completer = ImprovedAmodalCompleter(
-            FakeBase(),
+            fake_models,
             config={"seed": 42, "enable_critic": True, "critique_threshold": 7.0, "max_critic_iter": 2},
         )
 

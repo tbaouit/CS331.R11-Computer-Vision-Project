@@ -213,3 +213,4 @@ def refine_exact_mask_sd2_oracle(
         )
 
     return _suppress_outer_rim_white_bleed(out, seed_canvas, occ, amodal, ref_p90_luma)
+

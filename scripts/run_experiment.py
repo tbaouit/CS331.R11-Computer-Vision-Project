@@ -1,4 +1,4 @@
-"""Run full SCAmodal on prepared COCO-A targets with per-target artifacts/resume."""
+"""Run the amodal completion pipeline on prepared COCO-A targets with per-target artifacts/resume."""
 import argparse, contextlib, hashlib, json, os, shutil, sys, time
 from pathlib import Path
 os.environ["MPLBACKEND"] = "Agg"
@@ -21,7 +21,7 @@ def backup(job_root, destination):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    archive = shutil.make_archive(str(ROOT / "outputs" / f"scamodal_{job_root.name}_{stamp}"), "zip", job_root)
+    archive = shutil.make_archive(str(ROOT / "outputs" / f"amodal_{job_root.name}_{stamp}"), "zip", job_root)
     try:
         target = destination / Path(archive).name
         partial = target.with_suffix(".zip.part")
@@ -35,15 +35,15 @@ def main():
     if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=ROOT / "outputs/train_smoke/manifest.json")
-    parser.add_argument("--config", type=Path, default=ROOT / "configs/scamodal.json")
+    parser.add_argument("--config", type=Path, default=ROOT / "configs/improved.json")
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--backup-dir", type=Path)
     parser.add_argument("--backup-every", type=int, default=5)
     parser.add_argument("--allow-test", action="store_true", help="Explicit final-test run after configuration is frozen")
     args = parser.parse_args()
     config = json.loads(args.config.read_text(encoding="utf-8"))
-    if config.get("mask_only") or not config.get("enable_critic"):
-        raise ValueError("This entry point runs full SCAmodal with critic, not mask-only/baseline")
+    if not config.get("enable_critic"):
+        raise ValueError("This entry point requires enable_critic=true")
     if not 1 <= config["max_critic_iter"] <= 10 or not 0 <= config["critique_threshold"] <= 10:
         raise ValueError("Invalid critic settings")
     records = json.loads(args.manifest.read_text(encoding="utf-8"))
@@ -54,14 +54,12 @@ def main():
         raise ValueError("Duplicate sample IDs")
     if any(r["split"] == "test" for r in records) and not args.allow_test:
         raise ValueError("Test split is protected; use --allow-test only after freezing configuration")
-    source = json.loads((ROOT / "upstream/provenance.json").read_text(encoding="utf-8"))
-    files = list((ROOT / "runtime/SCAmodal").glob("*.py")) + list((ROOT / "src").rglob("*.py"))
+    files = list((ROOT / "src").rglob("*.py"))
     files += [ROOT / name for name in ["installed_gpu_versions.txt", "dependency_versions.json"] if (ROOT / name).is_file()]
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(files))).hexdigest()
-    profile = hashlib.sha256(json.dumps(dict(config=config, commit=source["commit"], code_hash=code_hash), sort_keys=True).encode()).hexdigest()[:16]
-    output_root = ROOT / "outputs/scamodal" / profile
+    profile = hashlib.sha256(json.dumps(dict(config=config, code_hash=code_hash), sort_keys=True).encode()).hexdigest()[:16]
+    output_root = ROOT / "outputs/runs" / profile
     output_root.mkdir(parents=True, exist_ok=True)
-    (output_root / "provenance.json").write_text(json.dumps(source, indent=2), encoding="utf-8")
     (output_root / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     for name in ["installed_gpu_versions.txt", "dependency_versions.json"]:
         if (ROOT / name).is_file(): shutil.copy2(ROOT / name, output_root / name)
@@ -72,7 +70,7 @@ def main():
         with contextlib.redirect_stdout(Tee(sys.stdout, log)), contextlib.redirect_stderr(Tee(sys.stderr, log)):
             try:
                 import random, numpy as np, torch
-                from src.pipelines.backend import SCAmodalBackend
+                from src.pipelines.backend import AmodalBackend
                 backend = None
                 # Lazy model loading: already-completed records can resume without loading GPU models.
                 class LazyBackend:
@@ -81,12 +79,12 @@ def main():
                         if backend is None:
                             t_load = time.perf_counter()
                             print("[Init] Loading foundation models once for the whole batch...", flush=True)
-                            backend = SCAmodalBackend(config)
+                            backend = AmodalBackend(config)
                             print(f"[Init] All models loaded in {time.perf_counter() - t_load:.1f}s.", flush=True)
                         backend.begin_sample(job)
                     def complete(self, *values, **kwargs): return backend.complete(*values, **kwargs)
                 lazy = LazyBackend()
-                print(f"Profile: {profile} | Mode: {config.get('pipeline_mode', 'upstream_baseline')} | Targets: {len(records)}", flush=True)
+                print(f"Profile: {profile} | Mode: {config.get('pipeline_mode', 'improved')} | Targets: {len(records)}", flush=True)
                 for idx, record in enumerate(records, start=1):
                     dirty_backup = True
                     try:
