@@ -4,7 +4,7 @@ from pathlib import Path
 os.environ["MPLBACKEND"] = "Agg"
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from src.experiment import run_one
+from src.evaluation.runner import run_one
 
 class Tee:
     def __init__(self, *streams): self.streams = streams
@@ -55,7 +55,7 @@ def main():
     if any(r["split"] == "test" for r in records) and not args.allow_test:
         raise ValueError("Test split is protected; use --allow-test only after freezing configuration")
     source = json.loads((ROOT / "upstream/provenance.json").read_text(encoding="utf-8"))
-    files = list((ROOT / "runtime/SCAmodal").glob("*.py")) + list((ROOT / "src").glob("*.py"))
+    files = list((ROOT / "runtime/SCAmodal").glob("*.py")) + list((ROOT / "src").rglob("*.py"))
     files += [ROOT / name for name in ["installed_gpu_versions.txt", "dependency_versions.json"] if (ROOT / name).is_file()]
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(files))).hexdigest()
     profile = hashlib.sha256(json.dumps(dict(config=config, commit=source["commit"], code_hash=code_hash), sort_keys=True).encode()).hexdigest()[:16]
@@ -72,7 +72,7 @@ def main():
         with contextlib.redirect_stdout(Tee(sys.stdout, log)), contextlib.redirect_stderr(Tee(sys.stderr, log)):
             try:
                 import random, numpy as np, torch
-                from src.scamodal_backend import SCAmodalBackend
+                from src.pipelines.backend import SCAmodalBackend
                 backend = None
                 # Lazy model loading: already-completed records can resume without loading GPU models.
                 class LazyBackend:

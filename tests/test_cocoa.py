@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 from pycocotools import mask as coco_mask
-from src.cocoa import decode_mask, Target
+from src.data.cocoa import decode_mask, Target
 from pathlib import Path
 
 

@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np
 from PIL import Image, ImageDraw
-from src.cocoa import CocoaDataset
+from src.data.cocoa import CocoaDataset
 
 
 def sha(path):

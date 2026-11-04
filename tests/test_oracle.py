@@ -9,13 +9,11 @@ import unittest
 import numpy as np
 from PIL import Image
 
-from src.experiment import run_one
-from src.scamodal_oracle import (
-    OracleMaskAmodalCompleter,
-    build_oracle_appearance_seed,
-    build_oracle_vlm_prompts,
-    compute_appearance_coherence_metrics,
-)
+from src.evaluation.metrics import compute_appearance_coherence_metrics
+from src.evaluation.runner import run_one
+from src.pipelines.oracle_completer import OracleMaskAmodalCompleter
+from src.stages.appearance_prior import build_oracle_appearance_seed
+from src.stages.vlm_guidance import build_oracle_vlm_prompts
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -297,3 +295,4 @@ class OracleMaskPipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

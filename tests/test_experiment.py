@@ -4,7 +4,7 @@ import tempfile
 import unittest
 import numpy as np
 from PIL import Image
-from src.experiment import run_one, crop_original
+from src.evaluation.runner import run_one, crop_original
 
 class FakeBackend:
     """Synthetic outputs for orchestration tests only; never used by the production CLI."""

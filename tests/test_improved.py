@@ -8,16 +8,20 @@ import unittest
 import numpy as np
 from PIL import Image
 
-from src.scamodal_improved import (
-    adaptive_seam_blend,
-    build_appearance_prior,
+from src.stages.appearance_prior import build_appearance_prior
+from src.stages.shape_consensus import fuse_pix2gestalt_predictions
+from src.stages.vlm_guidance import (
     build_vlm_visual_prompts,
+    parse_structured_vlm_reasoning,
+)
+from src.vision.compositing import (
+    adaptive_seam_blend,
     compose_cropped_for_critic,
+    lock_low_frequency_to_prior,
+)
+from src.vision.roi import (
     compute_square_roi,
     extract_square_roi,
-    fuse_pix2gestalt_predictions,
-    lock_low_frequency_to_prior,
-    parse_structured_vlm_reasoning,
     paste_square_roi,
 )
 
@@ -270,7 +274,7 @@ class ImprovedPipelineTests(unittest.TestCase):
 
     def test_improved_completer_best_of_n_and_trace_artifacts(self):
         import types
-        from src.scamodal_improved import ImprovedAmodalCompleter
+        from src.pipelines.improved_completer import ImprovedAmodalCompleter
 
         fake_torch = types.ModuleType("torch")
         fake_torch.cuda = types.SimpleNamespace(

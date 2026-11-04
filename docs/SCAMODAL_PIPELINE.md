@@ -58,9 +58,31 @@ Backup ZIP sau từng mẫu nếu truyền --backup-dir; vẫn có thể mất m
 Không chạy hai notebook ghi cùng outputs cùng lúc.
 
 
+## Kiến trúc module (`src/`)
+
+Mã nguồn trong `src/` được tách theo từng tầng trách nhiệm độc lập để dễ đọc, kiểm thử và tinh chỉnh phương pháp:
+
+- `src/data/cocoa.py`: Đọc dữ liệu COCO-A và giải mã mask polygon/RLE.
+- `src/vision/`: Các phép toán thị giác máy tính thuần túy dùng chung:
+  - `image_ops.py`: Phép toán hình thái học nhị phân, lọc thành phần liên thông, lấp lỗ Telea và làm mờ Gaussian.
+  - `roi.py`: Tính toán khung vuông ngữ cảnh (`compute_square_roi`), cắt và ghép lại khung gốc.
+  - `compositing.py`: Khóa cấu trúc tần số thấp (`lock_low_frequency_to_prior`), hòa trộn biên thích nghi (`adaptive_seam_blend`) và tạo ảnh crop cho Critic.
+- `src/stages/`: Từng bước xử lý chuyên biệt trong pipeline:
+  - `shape_consensus.py`: Chuẩn bị đầu vào ROI cho Pix2Gestalt và hợp nhất đa mẫu kênh alpha CarveKit.
+  - `appearance_prior.py`: Xây dựng bản khởi tạo màu sắc/ánh sáng vùng khuất cho cả chế độ Blind (`build_appearance_prior`) và Oracle-Mask (`build_oracle_appearance_seed`).
+  - `vlm_guidance.py`: Xây dựng visual prompt cho Qwen3-VL, phân tích cấu trúc đầu ra, kiểm chứng bằng CLIP và chấm điểm Critic.
+  - `sd2_refiner.py`: Tinh chỉnh chi tiết bằng Stable Diffusion 2 Inpainting trên cửa sổ `512x512` cho chế độ Blind và Oracle-Mask.
+- `src/pipelines/`: Các bộ điều phối luồng chạy mức cao:
+  - `backend.py`: `SCAmodalBackend` khởi tạo model dùng chung và chuyển tiếp sang đúng pipeline theo `pipeline_mode`.
+  - `baseline_tracer.py`: Ghi nhận artifact trung gian cho bản gốc `upstream_baseline`.
+  - `improved_completer.py`: `ImprovedAmodalCompleter` cho chế độ tự dự đoán mask + khôi phục diện mạo.
+  - `oracle_completer.py`: `OracleMaskAmodalCompleter` cho chế độ nhận thẳng `occluded_mask` từ đầu vào.
+- `src/evaluation/`: Đánh giá và đối chiếu kết quả (`metrics.py`, `runner.py`, `comparison.py`).
+
+
 ## Chế độ cải tiến (`pipeline_mode = "improved"`)
 
-Giữ nguyên toàn bộ byte của `upstream/SCAmodal` và `runtime/SCAmodal` (chế độ gốc được giữ tại `configs/scamodal_baseline.json` với `pipeline_mode = "upstream_baseline"` để đối chiếu ablation). Cấu hình mặc định `configs/scamodal.json` kích hoạt `src/scamodal_improved.py` (`ImprovedAmodalCompleter`), khắc phục 4 lỗi hình dạng và màu sắc của bản gốc mà không dùng thêm trọng số huấn luyện và không chạm tới ground-truth mask:
+Giữ nguyên toàn bộ byte của `upstream/SCAmodal` và `runtime/SCAmodal` (chế độ gốc được giữ tại `configs/scamodal_baseline.json` với `pipeline_mode = "upstream_baseline"` để đối chiếu ablation). Cấu hình mặc định `configs/scamodal.json` kích hoạt `src/pipelines/improved_completer.py` (`ImprovedAmodalCompleter`), khắc phục 4 lỗi hình dạng và màu sắc của bản gốc mà không dùng thêm trọng số huấn luyện và không chạm tới ground-truth mask:
 
 1. **Context-Aware Square ROI + Multi-Sample Pix2Gestalt Consensus + Smooth Alpha Matting**:
    - Crop cửa sổ vuông có ngữ cảnh quanh `visible_mask` (`roi_context_scale = 3.8`, tối thiểu `256px`, tự động dùng toàn khung khi vật thể lớn `>= 85%` khung) giúp các vật thể nhỏ giữ độ phân giải thực thay vì bị nén xuống vài pixel trong khung `256x256`.
@@ -76,7 +98,7 @@ Giữ nguyên toàn bộ byte của `upstream/SCAmodal` và `runtime/SCAmodal` (
 
 ## Chế độ chuyên biệt nhận thẳng Mask phần bị che (`pipeline_mode = "oracle_mask"`)
 
-Cấu hình `configs/scamodal_oracle_mask.json` kích hoạt pipeline riêng `src/scamodal_oracle.py` (`OracleMaskAmodalCompleter`), nhận trực tiếp `occluded_mask` (`gt_hidden`) từ input cùng với `image` và `visible_mask` (thiết lập *Mask-Guided / Oracle-Mask Amodal Appearance Completion*):
+Cấu hình `configs/scamodal_oracle_mask.json` kích hoạt pipeline riêng `src/pipelines/oracle_completer.py` (`OracleMaskAmodalCompleter`), nhận trực tiếp `occluded_mask` (`gt_hidden`) từ input cùng với `image` và `visible_mask` (thiết lập *Mask-Guided / Oracle-Mask Amodal Appearance Completion*):
 
 1. **Exact-Target Amodal ROI + Fast 3D RGB Prior**: Căn cửa sổ vuông trực tiếp quanh `amodal_mask = visible_mask | occluded_mask` (`oracle_roi_scale = 1.65`, tối thiểu `176 px`) và chỉ chạy 1 mẫu Pix2Gestalt (`ddim_steps = 75`) để lấy tham chiếu ánh sáng/kết cấu toàn vật thể mà không dùng Pix2Gestalt để đoán biên mask (`Amodal IoU = 1.0`, `Hidden IoU = 1.0`).
 2. **Multi-Cue Boundary + Prior Seed (`build_oracle_appearance_seed`)**: Kết hợp lan truyền biên Telea sạch vật cản từ `image[visible_mask]` với prior màu đã hiệu chỉnh tương phản; tự động khử vệt bóng tối của vật cản trên bề mặt sáng đồng nhất (như lòng hộp xốp trắng / đĩa sứ) và lấp đầy các vùng khuất mảnh mà Pix2Gestalt bỏ sót (như chân công trình hoặc cán vợt).
