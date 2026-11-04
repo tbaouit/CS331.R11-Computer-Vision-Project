@@ -30,14 +30,21 @@ Qwen3-VL semantic reasoning → Pix2Gestalt / CarveKit prior → Hybrid SD2 ROI 
   - `configs/improved.json` (`pipeline_mode = "improved"`): tự dự đoán cả vùng bị che lẫn ngoại hình.
   - `configs/oracle_mask.json` (`pipeline_mode = "oracle_mask"`): **nhận thẳng mask phần bị che từ input** (`gt_hidden` / `occluded_mask`) theo thiết lập Mask-Guided Amodal Appearance Completion.
 """)
-    md("## 1. GPU và Google Drive")
-    code("""import subprocess, sys, os, shutil, zipfile, json, base64
+    md("## 1. GPU và Google Drive\nẨn thanh tiến trình phần trăm; vẫn hiển thị trạng thái tải model, kết quả từng mẫu và lỗi. Log của pipeline vẫn được lưu trong `outputs/runs/<profile>/pipeline.log`.")
+    code("""import subprocess, sys, os, shutil, zipfile, json, base64, re
 from pathlib import Path
 os.environ["MPLBACKEND"] = "Agg"
 def sh(*cmd):
-    env = {**os.environ, "MPLBACKEND": "Agg", "PYTHONUNBUFFERED": "1"}
+    env = {
+        **os.environ, "MPLBACKEND": "Agg", "PYTHONUNBUFFERED": "1",
+        "HF_HUB_DISABLE_PROGRESS_BARS": "1", "TQDM_DISABLE": "1",
+    }
     with subprocess.Popen(list(map(str, cmd)), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env=env) as p:
         for line in p.stdout:
+            # Older Pix2Gestalt/CarveKit tqdm bars may ignore TQDM_DISABLE.
+            # Filter only progress-bar lines; keep status messages and errors.
+            if re.search(r"[0-9]{1,3}%[|].*[|]", line):
+                continue
             print(line, end="", flush=True)
         if p.wait() != 0:
             raise subprocess.CalledProcessError(p.returncode, cmd)
