@@ -137,8 +137,8 @@ for res_file in sorted(latest_profile.glob("*/*/result.json")):
     print(f"=== {res['sample_id']} ({res.get('name')}) | Amodal IoU={m['amodal_iou']:.4f} | Hidden IoU={m['hidden_iou']:.4f} | Score={res.get('final_score')} ===")
     display(Image.open(res_file.parent / "preview.jpg"))
 """)
-    md("## 8. So sánh trực tiếp Baseline vs Improved (bảng số liệu + lưới ảnh)\nChạy ô này khi đã có cả kết quả Baseline và Improved trong `outputs/scamodal/`.")
-    code("""sh(PYTHON, "scripts/compare_runs.py")
+    md("## 8. So sánh trực tiếp Baseline vs Improved (bảng số liệu + lưới ảnh)\nTự động khôi phục các bản backup trước đó từ Google Drive (`DRIVE / 'results'`) nếu chưa có đủ cả hai profile trong `outputs/scamodal/`.")
+    code("""sh(PYTHON, "scripts/compare_runs.py", "--backup-dir", str(DRIVE / "results"))
 display(Image.open(PROJECT / "outputs/scamodal/comparison_grid.jpg"))
 """)
     for i, cell in enumerate(cells):

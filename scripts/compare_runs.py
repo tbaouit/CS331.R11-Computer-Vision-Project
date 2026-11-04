@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import sys
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,55 @@ from PIL import Image, ImageDraw
 
 os.environ["MPLBACKEND"] = "Agg"
 ROOT = Path(__file__).resolve().parents[1]
+
+DEFAULT_BACKUP_DIRS = [
+    Path("/content/drive/MyDrive/CS331/results"),
+    Path("/content/drive/MyDrive/amodal_project/results"),
+]
+
+
+def _auto_restore_drive_backups(scamodal_root: Path, extra_backup_dir: Path | None = None) -> list[Path]:
+    """Extract the latest Google Drive backup archive for any profile missing from scamodal_root."""
+    search_dirs: list[Path] = []
+    if extra_backup_dir is not None:
+        search_dirs.append(extra_backup_dir)
+    for d in DEFAULT_BACKUP_DIRS:
+        if d not in search_dirs:
+            search_dirs.append(d)
+
+    latest_zip_by_profile: dict[str, Path] = {}
+    for bdir in search_dirs:
+        if not bdir.is_dir():
+            continue
+        for zpath in sorted(bdir.glob("scamodal_*_*.zip"), key=lambda p: p.name):
+            parts = zpath.stem.split("_")
+            if len(parts) < 3:
+                continue
+            profile = parts[1]
+            if len(profile) == 16 and all(c in "0123456789abcdef" for c in profile):
+                prev = latest_zip_by_profile.get(profile)
+                if prev is None or zpath.name >= prev.name:
+                    latest_zip_by_profile[profile] = zpath
+
+    restored: list[Path] = []
+    for profile, zpath in sorted(latest_zip_by_profile.items()):
+        dest = scamodal_root / profile
+        existing_count = len(list(dest.glob("*/*/result.json"))) if dest.is_dir() else 0
+        try:
+            with zipfile.ZipFile(zpath) as bundle:
+                zip_result_count = sum(1 for item in bundle.namelist() if item.endswith("/result.json"))
+                if existing_count >= zip_result_count and existing_count > 0:
+                    continue
+                dest.mkdir(parents=True, exist_ok=True)
+                for item in bundle.infolist():
+                    if not (dest / item.filename).resolve().is_relative_to(dest.resolve()):
+                        raise ValueError(f"Unsafe archive path in {zpath}: {item.filename}")
+                bundle.extractall(dest)
+                restored.append(dest)
+                print(f"[Auto-Restore] Restored profile {profile} ({zip_result_count} samples) from {zpath}")
+        except Exception as exc:
+            print(f"[Auto-Restore] Skipping backup {zpath}: {exc}")
+    return restored
 
 
 def _load_profile_results(profile_dir: Path) -> tuple[str, dict[str, tuple[Path, dict]]]:
@@ -42,13 +92,25 @@ def _resolve_dir(spec: str | None, scamodal_root: Path) -> Path | None:
     raise FileNotFoundError(f"Run directory not found: {spec}")
 
 
-def _auto_select_profiles(scamodal_root: Path) -> tuple[Path, Path]:
+def _auto_select_profiles(scamodal_root: Path, backup_dir: Path | None = None) -> tuple[Path, Path]:
+    scamodal_root.mkdir(parents=True, exist_ok=True)
     profiles = [p for p in scamodal_root.iterdir() if p.is_dir() and list(p.glob("*/*/result.json"))]
     if len(profiles) < 2:
-        raise RuntimeError(f"Need at least 2 completed profile directories under {scamodal_root}; found {len(profiles)}.")
+        _auto_restore_drive_backups(scamodal_root, backup_dir)
+        profiles = [p for p in scamodal_root.iterdir() if p.is_dir() and list(p.glob("*/*/result.json"))]
+
+    if not profiles:
+        raise RuntimeError(f"No completed profile directories found under {scamodal_root}.")
+
+    if len(profiles) == 1:
+        print(
+            f"[Notice] Only 1 profile ({profiles[0].name}) found under {scamodal_root} "
+            "(no second profile found in local outputs or Google Drive backups); rendering single-profile report."
+        )
+        return profiles[0], profiles[0]
 
     baselines, improveds = [], []
-    for p in sorted(profiles, key=lambda d: max(f.stat().st_mtime for f in d.glob("*/*/result.json"))):
+    for p in sorted(profiles, key=lambda d: (len(list(d.glob("*/*/result.json"))), max(f.stat().st_mtime for f in d.glob("*/*/result.json")))):
         label, res = _load_profile_results(p)
         if not res:
             continue
@@ -59,7 +121,10 @@ def _auto_select_profiles(scamodal_root: Path) -> tuple[Path, Path]:
 
     if baselines and improveds:
         return baselines[-1], improveds[-1]
-    ordered = sorted(profiles, key=lambda d: max(f.stat().st_mtime for f in d.glob("*/*/result.json")))
+    ordered = sorted(
+        profiles,
+        key=lambda d: (len(list(d.glob("*/*/result.json"))), max(f.stat().st_mtime for f in d.glob("*/*/result.json"))),
+    )
     return ordered[-2], ordered[-1]
 
 
@@ -78,6 +143,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=ROOT / "outputs/train_smoke/manifest.json")
     parser.add_argument("--scamodal-root", type=Path, default=ROOT / "outputs/scamodal")
+    parser.add_argument("--backup-dir", type=Path, default=None, help="Optional Google Drive backup directory")
     parser.add_argument("--baseline", type=str, default=None, help="Baseline profile hash or path")
     parser.add_argument("--improved", type=str, default=None, help="Improved profile hash or path")
     parser.add_argument("--output-grid", type=Path, default=ROOT / "outputs/scamodal/comparison_grid.jpg")
@@ -86,7 +152,7 @@ def main():
     base_dir = _resolve_dir(args.baseline, args.scamodal_root)
     imp_dir = _resolve_dir(args.improved, args.scamodal_root)
     if base_dir is None or imp_dir is None:
-        auto_base, auto_imp = _auto_select_profiles(args.scamodal_root)
+        auto_base, auto_imp = _auto_select_profiles(args.scamodal_root, args.backup_dir)
         base_dir = base_dir or auto_base
         imp_dir = imp_dir or auto_imp
 
