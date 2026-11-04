@@ -16,8 +16,14 @@ class QwenVLModel:
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
             model_id,
             torch_dtype=torch.float16,
-            device_map="auto",
+            device_map=None,
         )
+        self.model.to(device).eval()
         self.processor = AutoProcessor.from_pretrained(model_id)
         print(f"[Models] {model_id} ready.", flush=True)
 
+
+    def to(self, device):
+        self.model.to(device)
+        self.device = str(device)
+        return self

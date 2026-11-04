@@ -54,16 +54,19 @@ class AmodalBackend:
         if policy not in TEXT_QUERY_POLICIES:
             raise ValueError(f"Unknown text_query_policy: {policy}")
         query = label if policy == "dataset_object_name" else ""
-        if self.mode == "oracle_mask":
-            if occluded_mask is None:
-                raise ValueError("pipeline_mode='oracle_mask' requires occluded_mask input.")
-            return self.completer.complete(
-                image=image,
-                visible_mask=visible,
-                occluded_mask=occluded_mask,
-                text_query=query,
-                job_dir=self.job,
-            )
-        if occluded_mask is not None:
-            raise ValueError(f"Blind pipeline_mode='{self.mode}' must not receive occluded_mask.")
-        return self.completer.complete(image=image, visible_mask=visible, text_query=query, job_dir=self.job)
+        try:
+            if self.mode == "oracle_mask":
+                if occluded_mask is None:
+                    raise ValueError("pipeline_mode='oracle_mask' requires occluded_mask input.")
+                return self.completer.complete(
+                    image=image,
+                    visible_mask=visible,
+                    occluded_mask=occluded_mask,
+                    text_query=query,
+                    job_dir=self.job,
+                )
+            if occluded_mask is not None:
+                raise ValueError(f"Blind pipeline_mode='{self.mode}' must not receive occluded_mask.")
+            return self.completer.complete(image=image, visible_mask=visible, text_query=query, job_dir=self.job)
+        finally:
+            self.models.release_gpu()

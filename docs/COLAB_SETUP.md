@@ -22,3 +22,17 @@
 `--backup-dir` mới khôi phục ZIP từ thư mục backup đó. Ô 7 của notebook đã truyền
 `--backup-dir` tới thư mục `results` trên Drive. Các test dùng dữ liệu giả trong
 thư mục tạm, không đọc backup thật trên Drive.
+
+## Bộ nhớ GPU
+
+Các model được nạp khi giai đoạn đầu tiên cần dùng tới chúng. Chỉ model đang
+chạy nằm trên GPU; model đã nạp được giữ trong RAM CPU và dùng lại giữa các mẫu.
+CarveKit chạy trên CPU. Pix2Gestalt dùng trọng số EMA suy luận đã áp dụng một lần,
+không giữ thêm bản trọng số huấn luyện để sao lưu trên GPU. Cách này giảm VRAM
+nhưng tăng nhu cầu RAM hệ thống và thời gian chuyển model; nên dùng runtime có
+nhiều RAM. Chưa đo mức VRAM đỉnh trên GPU Colab thực tế sau thay đổi này.
+
+Nếu phiên trước vừa báo CUDA OOM, cập nhật code bằng ô 2, chạy lại unit tests
+(chỉ dòng test của ô 3), rồi thử ô 5B với `--limit 1` trước. Không cần chạy lại
+setup hoặc tải lại checkpoint nếu vẫn cùng runtime. Có thể xem `nvidia-smi` để
+kiểm tra tiến trình còn chiếm GPU; không chạy đồng thời ô 5A và 5B.

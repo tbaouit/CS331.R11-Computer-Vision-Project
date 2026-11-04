@@ -3,7 +3,7 @@
 ## 1. Phân tầng module (`src/`)
 
 - `src/data/cocoa.py`: Đọc dữ liệu COCO-A và giải mã mask polygon/RLE.
-- `src/models/`: Nạp một lần và chia sẻ trọng số của 4 mô hình nền tảng (`Pix2GestaltModel`, `QwenVLModel`, `StableDiffusionInpaintPipeline`, `CLIPModel`) thông qua `FoundationModels`.
+- `src/models/`: Nạp khi cần, lưu lại trong RAM CPU và lần lượt đưa lên GPU trọng số của 4 mô hình nền tảng (`Pix2GestaltModel`, `QwenVLModel`, `StableDiffusionInpaintPipeline`, `CLIPModel`) thông qua `FoundationModels`.
 - `src/vision/`: Các phép toán hình thái học nhị phân (`image_ops.py`), tính toán cửa sổ vuông ngữ cảnh (`roi.py`), khóa tần số thấp và hòa trộn biên thích nghi (`compositing.py`).
 - `src/stages/`:
   - `shape_consensus.py`: Chuẩn bị đầu vào ROI cho Pix2Gestalt và hợp nhất đa mẫu kênh alpha CarveKit.

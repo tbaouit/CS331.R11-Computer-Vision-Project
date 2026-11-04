@@ -75,18 +75,22 @@ class ImprovedAmodalCompleter:
             f"[Improved-Branch B] Pix2Gestalt ROI={roi['size']}x{roi['size']} "
             f"(full_frame={roi['is_full_frame']}, n_samples={n_samples}, ddim_steps={ddim_steps})..."
         )
+        retry_single = False
         try:
             with torch.inference_mode():
                 samples_rgb_256 = run_pix2gestalt(**p2g_kwargs)
         except RuntimeError as err:
             if "out of memory" in str(err).lower() and n_samples > 1:
                 print("[Improved-Branch B] VRAM tight for multi-sample; retrying with n_samples=1...")
-                torch.cuda.empty_cache()
-                p2g_kwargs["n_samples"] = 1
-                with torch.inference_mode():
-                    samples_rgb_256 = run_pix2gestalt(**p2g_kwargs)
+                retry_single = True
             else:
                 raise
+        if retry_single:
+            # Leave the except block first so its traceback releases CUDA tensors.
+            torch.cuda.empty_cache()
+            p2g_kwargs["n_samples"] = 1
+            with torch.inference_mode():
+                samples_rgb_256 = run_pix2gestalt(**p2g_kwargs)
 
         pil_samples = [Image.fromarray(s) for s in samples_rgb_256]
         rgba_mats = predictor.carvekit_interface(pil_samples)

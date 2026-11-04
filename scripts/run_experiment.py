@@ -2,6 +2,7 @@
 import argparse, contextlib, hashlib, json, os, shutil, sys, time
 from pathlib import Path
 os.environ["MPLBACKEND"] = "Agg"
+os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.evaluation.runner import run_one
@@ -78,9 +79,9 @@ def main():
                         nonlocal backend
                         if backend is None:
                             t_load = time.perf_counter()
-                            print("[Init] Loading foundation models once for the whole batch...", flush=True)
+                            print("[Init] Preparing model manager (models load on first use)...", flush=True)
                             backend = AmodalBackend(config)
-                            print(f"[Init] All models loaded in {time.perf_counter() - t_load:.1f}s.", flush=True)
+                            print(f"[Init] Model manager ready in {time.perf_counter() - t_load:.1f}s.", flush=True)
                         backend.begin_sample(job)
                     def complete(self, *values, **kwargs): return backend.complete(*values, **kwargs)
                 lazy = LazyBackend()
