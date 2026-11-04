@@ -72,3 +72,13 @@ Giữ nguyên toàn bộ byte của `upstream/SCAmodal` và `runtime/SCAmodal` (
 4. **Target-Aware Cropped Critic & Best-of-N**:
    - Crop sát vật thể hoàn thiện trên nền trắng gửi cho Qwen Critic kèm tên vật thể mục tiêu và luôn giữ lại phương án có điểm Critic cao nhất qua các lần thử.
    - Dùng `scripts/compare_runs.py` để xuất bảng định lượng và lưới ảnh đối chiếu trực tiếp Baseline vs Improved (`outputs/scamodal/comparison_grid.jpg`).
+
+
+## Chế độ chuyên biệt nhận thẳng Mask phần bị che (`pipeline_mode = "oracle_mask"`)
+
+Cấu hình `configs/scamodal_oracle_mask.json` kích hoạt pipeline riêng `src/scamodal_oracle.py` (`OracleMaskAmodalCompleter`), nhận trực tiếp `occluded_mask` (`gt_hidden`) từ input cùng với `image` và `visible_mask` (thiết lập *Mask-Guided / Oracle-Mask Amodal Appearance Completion*):
+
+1. **Exact-Target Amodal ROI + Fast 3D RGB Prior**: Căn cửa sổ vuông trực tiếp quanh `amodal_mask = visible_mask | occluded_mask` (`oracle_roi_scale = 1.65`, tối thiểu `176 px`) và chỉ chạy 1 mẫu Pix2Gestalt (`ddim_steps = 75`) để lấy tham chiếu ánh sáng/kết cấu toàn vật thể mà không dùng Pix2Gestalt để đoán biên mask (`Amodal IoU = 1.0`, `Hidden IoU = 1.0`).
+2. **Multi-Cue Boundary + Prior Seed (`build_oracle_appearance_seed`)**: Kết hợp lan truyền biên Telea sạch vật cản từ `image[visible_mask]` với prior màu đã hiệu chỉnh tương phản; tự động khử vệt bóng tối của vật cản trên bề mặt sáng đồng nhất (như lòng hộp xốp trắng / đĩa sứ) và lấp đầy các vùng khuất mảnh mà Pix2Gestalt bỏ sót (như chân công trình hoặc cán vợt).
+3. **Silhouette-Blueprint Visual Prompting (`build_oracle_vlm_prompts`)**: Cung cấp cho Qwen3-VL bản vẽ silhouette màu xanh nhạt của đúng vùng `occluded_mask` cạnh phần `visible_mask` trên nền trắng (cùng ảnh ngữ cảnh đã che sọc vật cản), giúp VLM nhận biết chính xác bộ phận giải phẫu/cấu trúc cần khôi phục.
+4. **Dual-Zone 512x512 SD2 Refinement & 3-Way Comparison**: Khóa tần số thấp chặt trên vùng có prior tốt và nới biên tổng hợp chi tiết trên vùng `unfilled_mask`; `scripts/compare_runs.py` tự động xuất bảng và lưới ảnh đối chiếu 3 chiều (`Baseline -> Improved -> Oracle-Mask`) kèm chỉ số liên tục biên `SeamMAE` và tương đồng màu `ColorHistSim`.

@@ -1,4 +1,4 @@
-"""Instrument the author's runtime and dispatch between baseline and improved modes."""
+"""Instrument the author's runtime and dispatch between baseline, improved, and oracle-mask modes."""
 import json
 import os
 from pathlib import Path
@@ -17,9 +17,10 @@ class SCAmodalBackend:
             Image.ANTIALIAS = Image.Resampling.LANCZOS
         if config["device"] != "cuda" or not torch.cuda.is_available():
             raise RuntimeError("This full SCAmodal configuration requires CUDA. Use the Colab notebook.")
-        mode = config.get("pipeline_mode", "upstream_baseline")
-        if mode not in ("upstream_baseline", "improved"):
-            raise ValueError(f"Unknown pipeline_mode: {mode}")
+        raw_mode = config.get("pipeline_mode", "upstream_baseline")
+        mode = "oracle_mask" if raw_mode == "gt_mask" else raw_mode
+        if mode not in ("upstream_baseline", "improved", "oracle_mask"):
+            raise ValueError(f"Unknown pipeline_mode: {raw_mode}")
         for extra in [
             "vendor/taming-transformers",
             "vendor/CLIP",
@@ -41,11 +42,15 @@ class SCAmodalBackend:
         self.pad_info = {}
         self.attempt = 0
         self.critiques = []
+        self.improved = None
+        self.oracle = None
         if self.mode == "improved":
             from src.scamodal_improved import ImprovedAmodalCompleter
             self.improved = ImprovedAmodalCompleter(self.model, self.config)
+        elif self.mode == "oracle_mask":
+            from src.scamodal_oracle import OracleMaskAmodalCompleter
+            self.oracle = OracleMaskAmodalCompleter(self.model, self.config)
         else:
-            self.improved = None
             self.install_trace_hooks()
 
     def install_trace_hooks(self):
@@ -102,12 +107,23 @@ class SCAmodalBackend:
         self.pad_info, self.attempt, self.critiques = {}, 0, []
         os.environ["SCAMODAL_RUN_DIR"] = str(job)
 
-    def complete(self, image, visible, label):
-        # This call receives no amodal/hidden ground truth.
+    def complete(self, image, visible, label, occluded_mask=None):
         policy = self.config.get("text_query_policy", "upstream_default")
         if policy not in ("upstream_default", "dataset_object_name"):
             raise ValueError("Unknown text_query_policy")
         query = label if policy == "dataset_object_name" else ""
+        if self.mode == "oracle_mask":
+            if occluded_mask is None:
+                raise ValueError("pipeline_mode='oracle_mask' requires occluded_mask input.")
+            return self.oracle.complete(
+                image=image,
+                visible_mask=visible,
+                occluded_mask=occluded_mask,
+                text_query=query,
+                job_dir=self.job,
+            )
+        if occluded_mask is not None:
+            raise ValueError(f"Blind pipeline_mode='{self.mode}' must not receive occluded_mask.")
         if self.mode == "improved":
             return self.improved.complete(image=image, visible_mask=visible, text_query=query, job_dir=self.job)
         output = self.model.complete(

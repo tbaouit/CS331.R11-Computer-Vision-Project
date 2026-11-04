@@ -26,9 +26,9 @@ def crop_original(array, pad, original_shape):
         raise ValueError(f"Output canvas {array.shape[:2]} disagrees with declared padding")
     return array[pt:pt+h,pl:pl+w].copy()
 
-def preview(image, visible, amodal, rgba, path):
+def preview(image, visible, amodal, rgba, path, mask_label="Amodal prediction"):
     tiles = [image, visible.astype(np.uint8)*255, amodal.astype(np.uint8)*255, rgba]
-    labels = ["Input", "Visible input", "Amodal prediction", "SCAmodal completion"]
+    labels = ["Input", "Visible input", mask_label, "SCAmodal completion"]
     canvas = Image.new("RGB",(1120,310),"white")
     draw = ImageDraw.Draw(canvas)
     for index,(tile,label) in enumerate(zip(tiles,labels)):
@@ -48,12 +48,23 @@ def resolve_sample(base, value):
         raise ValueError("Sample path escapes manifest directory")
     return path
 
+def _uses_occluded_mask_input(config):
+    return config.get("pipeline_mode") in ("oracle_mask", "gt_mask") or bool(config.get("use_occluded_mask_input"))
+
 def run_one(record, sample_root, output_root, config, backend, profile):
-    # GT paths are deliberately not opened until after completion returns.
+    oracle_mode = _uses_occluded_mask_input(config)
     image_path = resolve_sample(sample_root,record["image"])
     visible_path = resolve_sample(sample_root,record["visible_mask"])
-    signature = hashlib.sha256(json.dumps(dict(profile=profile,input=sha(image_path),
-                         visible=sha(visible_path),record=record),sort_keys=True).encode()).hexdigest()
+    sig_payload = dict(profile=profile,input=sha(image_path),visible=sha(visible_path),record=record)
+    occluded_path = None
+    if oracle_mode:
+        if record.get("gt_hidden"):
+            occluded_path = resolve_sample(sample_root, record["gt_hidden"])
+            sig_payload["occluded_input"] = sha(occluded_path)
+        else:
+            gt_for_input = resolve_sample(sample_root, record["gt_amodal"])
+            sig_payload["occluded_from_amodal"] = sha(gt_for_input)
+    signature = hashlib.sha256(json.dumps(sig_payload,sort_keys=True).encode()).hexdigest()
     job = output_root/record["sample_id"]/signature[:12]
     if (job/"result.json").is_file():
         existing = json.loads((job/"result.json").read_text())
@@ -72,7 +83,18 @@ def run_one(record, sample_root, output_root, config, backend, profile):
         Image.fromarray(image).save(job/"input.png")
         Image.fromarray(visible.astype(np.uint8)*255).save(job/"visible.png")
         backend.begin_sample(job)
-        output = backend.complete(image,visible,record.get("name","object"))
+        if oracle_mode:
+            if occluded_path is not None:
+                occluded_in = read_mask(occluded_path) & (~visible)
+            else:
+                occluded_in = read_mask(resolve_sample(sample_root, record["gt_amodal"])) & (~visible)
+            if occluded_in.shape != visible.shape:
+                raise ValueError("Occluded input mask dimensions mismatch")
+            Image.fromarray(occluded_in.astype(np.uint8)*255).save(job/"occluded_input.png")
+            output = backend.complete(image,visible,record.get("name","object"),occluded_mask=occluded_in)
+        else:
+            # Blind mode: GT paths are deliberately not opened until after completion returns.
+            output = backend.complete(image,visible,record.get("name","object"))
         trace = output.get("_trace",{})
         full_rgba = np.asarray(output["inpainted_rgba"])
         full_mask = np.asarray(output["amodal_mask"],dtype=bool)
@@ -89,7 +111,6 @@ def run_one(record, sample_root, output_root, config, backend, profile):
         Image.fromarray(full_mask.astype(np.uint8)*255).save(job/"amodal_full_canvas.png")
         Image.fromarray(amodal.astype(np.uint8)*255).save(job/"amodal.png")
         Image.fromarray(hidden.astype(np.uint8)*255).save(job/"missing.png")
-        # Load evaluation labels now; neither is passed to the backend.
         gt = read_mask(resolve_sample(sample_root,record["gt_amodal"]))
         if gt.shape!=visible.shape:
             raise ValueError("GT dimensions mismatch")
@@ -105,7 +126,8 @@ def run_one(record, sample_root, output_root, config, backend, profile):
                            LPIPS=calculate_lpips(completed_v,original_v),
                            Feature_Similarity=calculate_feature_similarity(completed_v,original_v),
                            SSIM=calculate_ssim(completed_v,original_v))
-        preview(image,visible,amodal,rgba,job/"preview.jpg")
+        mask_lbl = "Exact Amodal (Vis+Occ)" if oracle_mode else "Amodal prediction"
+        preview(image,visible,amodal,rgba,job/"preview.jpg",mask_label=mask_lbl)
         history = output.get("critique_history",[])
         result = dict(status="completed",signature=signature,sample_id=record["sample_id"],profile=profile,
                       name=record.get("name"),seconds=round(time.perf_counter()-started,3),
@@ -118,6 +140,8 @@ def run_one(record, sample_root, output_root, config, backend, profile):
         (job/"trace.json").write_text(json.dumps(trace,indent=2),encoding="utf-8")
         artifacts = ["input.png","visible.png","completion.png","completion_full_canvas.png",
                      "amodal.png","missing.png","preview.jpg","trace.json"]
+        if oracle_mode:
+            artifacts.append("occluded_input.png")
         result["artifact_sha256"] = {name:sha(job/name) for name in artifacts}
         (job/"result.json").write_text(json.dumps(result,indent=2),encoding="utf-8")
         if (job/"failure.json").exists():

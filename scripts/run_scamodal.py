@@ -84,7 +84,7 @@ def main():
                             backend = SCAmodalBackend(config)
                             print(f"[Init] All models loaded in {time.perf_counter() - t_load:.1f}s.", flush=True)
                         backend.begin_sample(job)
-                    def complete(self, *values): return backend.complete(*values)
+                    def complete(self, *values, **kwargs): return backend.complete(*values, **kwargs)
                 lazy = LazyBackend()
                 print(f"Profile: {profile} | Mode: {config.get('pipeline_mode', 'upstream_baseline')} | Targets: {len(records)}", flush=True)
                 for idx, record in enumerate(records, start=1):

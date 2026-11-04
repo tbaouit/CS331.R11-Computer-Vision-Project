@@ -12,7 +12,10 @@ def main():
 Qwen3-VL reasoning → Pix2Gestalt/CarveKit → Hybrid SD2 ROI refinement → Qwen3-VL critic.
 - **Code**: clone / `git pull` trực tiếp từ GitHub (`{REPO_URL}`). Mỗi lần cập nhật code trên GitHub chỉ cần chạy lại **Ô 2** để pull bản mới nhất.
 - **Dataset**: giữ `cocoa_dataset.zip` trên Google Drive tại `MyDrive/CS331/cocoa_dataset.zip` hoặc `MyDrive/amodal_project/cocoa_dataset.zip` (chỉ copy & giải nén 1 lần cho mỗi phiên runtime).
-- **Chế độ chạy**: mặc định `configs/scamodal.json` chạy bản cải tiến (`pipeline_mode = "improved"`). Muốn chạy bản gốc của tác giả để đối chiếu, đổi `--config configs/scamodal_baseline.json`.
+- **Chế độ chạy**:
+  - `configs/scamodal.json` (`pipeline_mode = "improved"`): tự đoán cả vùng bị che lẫn ngoại hình.
+  - `configs/scamodal_oracle_mask.json` (`pipeline_mode = "oracle_mask"`): **nhận thẳng mask phần bị che từ input** (`gt_hidden` / `occluded_mask`) theo thiết lập Mask-Guided Amodal Appearance Completion.
+  - `configs/scamodal_baseline.json` (`pipeline_mode = "upstream_baseline"`): bản gốc của tác giả để đối chiếu.
 - Dùng runtime có GPU, ưu tiên A100 + High RAM. Chạy từng ô; dừng ở lỗi đầu tiên.
 """)
     md("## 1. GPU và Google Drive")
@@ -122,8 +125,11 @@ if RESTORE:
         bundle.extractall(destination)
     print("Restored:", destination)
 """)
-    md("## 6. Chạy pipeline trên tập smoke (10 mẫu)\nMặc định `configs/scamodal.json` chạy bản cải tiến (`improved`). Backup tự động lên Drive sau từng mẫu.")
+    md("## 6A. Chạy pipeline Blind Improved trên tập smoke (10 mẫu — tự đoán mask)")
     code("""sh(PYTHON, "scripts/run_scamodal.py", "--manifest", "outputs/train_smoke/manifest.json", "--config", "configs/scamodal.json", "--limit", "10", "--backup-dir", str(DRIVE / "results"))
+""")
+    md("## 6B. Chạy pipeline chuyên biệt nhận thẳng Mask phần bị che từ Input (`oracle_mask`)\nDùng trực tiếp `gt_hidden` làm `occluded_mask` đầu vào (hình dáng chuẩn 100%, tốc độ nhanh gấp ~2 lần, tập trung tối đa vào độ chính xác màu sắc & kết cấu).")
+    code("""sh(PYTHON, "scripts/run_scamodal.py", "--manifest", "outputs/train_smoke/manifest.json", "--config", "configs/scamodal_oracle_mask.json", "--limit", "10", "--backup-dir", str(DRIVE / "results"))
 """)
     md("## 7. Kiểm tra toàn bộ output của profile vừa chạy")
     code("""profiles = sorted([p for p in (PROJECT / "outputs/scamodal").iterdir() if p.is_dir() and list(p.glob("*/*/result.json"))],
