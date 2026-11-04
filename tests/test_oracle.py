@@ -269,8 +269,9 @@ class OracleMaskPipelineTests(unittest.TestCase):
                     ],
                     capture_output=True,
                     text=True,
-                    check=True,
+                    check=False,
                 )
+                self.assertEqual(proc.returncode, 0, f"compare_runs failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
                 self.assertIn("3-Way: Baseline -> Improved -> Oracle-Mask", proc.stdout)
                 self.assertIn("0.6800->0.7700->1.0000", proc.stdout)
                 self.assertTrue(grid_out.is_file())

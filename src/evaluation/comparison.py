@@ -12,22 +12,19 @@ from PIL import Image, ImageDraw
 
 from src.evaluation.metrics import compute_appearance_coherence_metrics
 
-DEFAULT_BACKUP_DIRS = [
-    Path("/content/drive/MyDrive/CS331/results"),
-    Path("/content/drive/MyDrive/amodal_project/results"),
-]
 # Backup archives are named `<prefix>_<16-hex profile>_<UTC stamp>.zip` (see scripts/run_experiment.py).
 BACKUP_NAME_RE = re.compile(r"^[A-Za-z]+_(?P<profile>[0-9a-f]{16})_(?P<stamp>\d{8}T\d{6}Z)\.zip$")
 
 
 def auto_restore_drive_backups(runs_root: Path, extra_backup_dir: Optional[Path] = None) -> list[Path]:
-    """Extract the latest Google Drive backup archive for any profile missing from runs_root."""
-    search_dirs: list[Path] = []
-    if extra_backup_dir is not None:
-        search_dirs.append(extra_backup_dir)
-    for d in DEFAULT_BACKUP_DIRS:
-        if d not in search_dirs:
-            search_dirs.append(d)
+    """Restore backups only from the directory explicitly requested by the caller.
+
+    A mounted Drive must not contaminate local runs or temporary test fixtures.
+    The Colab comparison cell already passes its Drive directory explicitly.
+    """
+    if extra_backup_dir is None:
+        return []
+    search_dirs = [extra_backup_dir]
 
     latest_zip_by_profile: dict[str, Path] = {}
     for bdir in search_dirs:
@@ -101,7 +98,8 @@ def resolve_profile_dir(spec: Optional[str], runs_root: Path) -> Optional[Path]:
 
 def discover_profiles_by_mode(runs_root: Path, backup_dir: Optional[Path] = None) -> dict[str, list[Path]]:
     runs_root.mkdir(parents=True, exist_ok=True)
-    auto_restore_drive_backups(runs_root, backup_dir)
+    if backup_dir is not None:
+        auto_restore_drive_backups(runs_root, backup_dir)
     profiles = [p for p in runs_root.iterdir() if p.is_dir() and list(p.glob("*/*/result.json"))]
     if not profiles:
         raise RuntimeError(f"No completed profile directories found under {runs_root}.")

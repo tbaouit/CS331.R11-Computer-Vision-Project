@@ -15,3 +15,10 @@
    - **Ô 5A**: Chạy chế độ nhận thẳng mask phần bị che (`configs/oracle_mask.json`).
    - **Ô 5B**: Chạy chế độ tự đoán mask (`configs/improved.json`).
 6. **Ô 6 & Ô 7**: Hiển thị kết quả từng mẫu và chạy `scripts/compare_runs.py` để xuất bảng số liệu + lưới ảnh so sánh (`outputs/runs/comparison_grid.jpg`).
+
+## So sánh và kiểm thử độc lập
+
+`scripts/compare_runs.py` mặc định chỉ đọc `--runs-root`. Chỉ khi có
+`--backup-dir` mới khôi phục ZIP từ thư mục backup đó. Ô 7 của notebook đã truyền
+`--backup-dir` tới thư mục `results` trên Drive. Các test dùng dữ liệu giả trong
+thư mục tạm, không đọc backup thật trên Drive.

@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=ROOT / "outputs/train_smoke/manifest.json")
     parser.add_argument("--runs-root", type=Path, default=ROOT / "outputs/runs")
-    parser.add_argument("--backup-dir", type=Path, default=None, help="Optional Google Drive backup directory")
+    parser.add_argument("--backup-dir", type=Path, default=None, help="Restore backups only from this explicit directory; omitted = local runs only")
     parser.add_argument("--baseline", type=str, default=None, help="Baseline profile hash or path")
     parser.add_argument("--improved", type=str, default=None, help="Improved or Oracle-Mask profile hash or path")
     parser.add_argument("--oracle", type=str, default=None, help="Optional Oracle-Mask profile hash or path")

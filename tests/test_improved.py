@@ -266,8 +266,9 @@ class ImprovedPipelineTests(unittest.TestCase):
                 ],
                 capture_output=True,
                 text=True,
-                check=True,
+                check=False,
             )
+            self.assertEqual(proc.returncode, 0, f"compare_runs failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
             self.assertIn("+0.2300", proc.stdout)
             self.assertTrue(grid_out.is_file())
             self.assertTrue(grid_out.with_suffix(".json").is_file())
