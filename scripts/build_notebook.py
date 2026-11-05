@@ -141,7 +141,9 @@ profiles = sorted([p for p in runs_dir.iterdir() if p.is_dir() and list(p.glob("
 if not profiles: raise RuntimeError("No successful output; inspect pipeline.log and failure.json")
 latest_profile = profiles[-1]
 print("Latest profile:", latest_profile)
-for res_file in sorted(latest_profile.glob("*/*/result.json")):
+result_files = sorted(latest_profile.glob("*/*/result.json"))
+print("Completed samples:", len(result_files), "— showing at most 10 previews")
+for res_file in result_files[:10]:
     res = json.loads(res_file.read_text())
     m = res["metrics"]
     print(f"=== {res['sample_id']} ({res.get('name')}) | Amodal IoU={m['amodal_iou']:.4f} | Hidden IoU={m['hidden_iou']:.4f} | Score={res.get('final_score')} ===")
@@ -151,6 +153,46 @@ for res_file in sorted(latest_profile.glob("*/*/result.json")):
     code("""sh(PYTHON, "scripts/compare_runs.py", "--backup-dir", str(DRIVE / "results"))
 display(Image.open(PROJECT / "outputs/runs/comparison_grid.jpg"))
 """)
+    md("## 8. Chấm metric theo tác giả trên ảnh đã lưu\nChỉ chạy bước chấm điểm, không sinh lại ảnh. Nhập đúng profile đã in ở đầu lần chạy (có thể dùng profile cũ trên Drive). CLIP là class relevance; LPIPS/CLIP feature/SSIM/PSNR đo bảo toàn vùng nhìn thấy. Xem `docs/EVALUATION.md`.")
+    code('''EVAL_PROFILE = "02549104b0c4d76a"  # THAY bằng profile cần chấm; đây là Oracle-Mask 10 mẫu đã chạy trước
+EVAL_MANIFEST = "outputs/train_smoke/manifest.json"
+sh(PYTHON, "scripts/evaluate_runs.py", "--profile", EVAL_PROFILE,
+   "--manifest", EVAL_MANIFEST, "--device", "cuda", "--backup-dir", str(DRIVE / "results"))
+reports = sorted((PROJECT / "outputs/runs" / EVAL_PROFILE / "evaluation").glob("*/aggregate.json"),
+                 key=lambda p: p.stat().st_mtime)
+report_path = reports[-1]
+report = json.loads(report_path.read_text())
+print(json.dumps(report["overall"], indent=2))
+print("CSV:", report_path.parent / "metrics.csv")
+''')
+    md("## 9. Chuẩn bị batch lớn: 50 dev hoặc 200 test\nBắt đầu với `dev50`. Chỉ chuyển sang `test200` khi đã chốt cấu hình và không sửa theo kết quả test. Dữ liệu được chọn bằng seed cố định, một object/ảnh, có lọc kích thước và tỷ lệ che 10–60%; không resize ảnh gốc. Contact sheet chỉ hiển thị tối đa 20 mẫu.")
+    code('''BATCH = "dev50"  # "dev50" để phát triển; "test200" cho đánh giá cuối
+FINAL_TEST = False  # chỉ đặt True khi đã chốt cấu hình và chọn test200
+if BATCH not in ("dev50", "test200"):
+    raise ValueError("Choose dev50 or test200")
+if BATCH == "test200" and not FINAL_TEST:
+    raise ValueError("Chốt cấu hình trước khi mở final test")
+extra = ["--allow-test"] if BATCH == "test200" else []
+sh(PYTHON, "scripts/prepare_data.py", "--config", f"configs/data_{BATCH}.json", *extra)
+BATCH_MANIFEST = f"outputs/{BATCH}/manifest.json"
+sh(PYTHON, "scripts/run_experiment.py", "--manifest", BATCH_MANIFEST,
+   "--config", "configs/oracle_mask.json", "--limit", "50" if BATCH == "dev50" else "200",
+   "--validate-only", *extra)
+display(Image.open(PROJECT / f"outputs/{BATCH}/contact_sheet.jpg"))
+''')
+    md("## 10. Chạy batch lớn và lưu tiến độ trên Drive\nNhánh mask-given là bài toán chính. Cùng runtime/config/code/manifest sẽ tự bỏ qua output hợp lệ; phiên mới tự khôi phục đúng profile từ backup. Dừng ở lỗi để kiểm tra; có thể thêm `--continue-on-error` nếu muốn ghi nhận lỗi từng mẫu và tiếp tục (OOM vẫn dừng). Không chạy song song các ô GPU.")
+    code('''batch_records = json.loads((PROJECT / BATCH_MANIFEST).read_text())
+sh(PYTHON, "scripts/run_experiment.py", "--manifest", BATCH_MANIFEST,
+   "--config", "configs/oracle_mask.json", "--limit", str(len(batch_records)),
+   "--backup-every", "5", "--backup-dir", str(DRIVE / "results"), *extra)
+''')
+    md("## 11. Chấm và xuất báo cáo batch lớn\nNhập profile chính xác từ ô 10. Tổng hợp theo object và mức che, có mean/std/n, ghi riêng các mẫu lỗi hoặc chưa chạy. Không coi IoU=1 của nhánh mask-given là kết quả dự đoán.")
+    code('''BATCH_PROFILE = "PASTE_PROFILE_FROM_CELL_10"
+if BATCH_PROFILE == "PASTE_PROFILE_FROM_CELL_10":
+    raise ValueError("Điền profile đã in ở ô 10")
+sh(PYTHON, "scripts/evaluate_runs.py", "--profile", BATCH_PROFILE,
+   "--manifest", BATCH_MANIFEST, "--device", "cuda", "--backup-dir", str(DRIVE / "results"))
+''')
     for i, cell in enumerate(cells):
         cell["id"] = f"amodal-{i:02d}"
         if cell["cell_type"] == "code":

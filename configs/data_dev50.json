@@ -1,0 +1,15 @@
+{
+  "dataset_root": "dataset/cocoa",
+  "output_dir": "outputs/dev50",
+  "split": "dev",
+  "limit": 50,
+  "seed": 42,
+  "sampling": "seeded_shuffle",
+  "one_object_per_image": true,
+  "min_visible_pixels": 1024,
+  "min_amodal_pixels": 2048,
+  "min_bbox_side": 32,
+  "min_hidden_ratio": 0.1,
+  "max_hidden_ratio": 0.6,
+  "preview_limit": 20
+}

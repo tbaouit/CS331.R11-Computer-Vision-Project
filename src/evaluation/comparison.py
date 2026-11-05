@@ -16,7 +16,8 @@ from src.evaluation.metrics import compute_appearance_coherence_metrics
 BACKUP_NAME_RE = re.compile(r"^[A-Za-z]+_(?P<profile>[0-9a-f]{16})_(?P<stamp>\d{8}T\d{6}Z)\.zip$")
 
 
-def auto_restore_drive_backups(runs_root: Path, extra_backup_dir: Optional[Path] = None) -> list[Path]:
+def auto_restore_drive_backups(runs_root: Path, extra_backup_dir: Optional[Path] = None,
+                             profiles: Optional[set[str]] = None) -> list[Path]:
     """Restore backups only from the directory explicitly requested by the caller.
 
     A mounted Drive must not contaminate local runs or temporary test fixtures.
@@ -35,6 +36,8 @@ def auto_restore_drive_backups(runs_root: Path, extra_backup_dir: Optional[Path]
             if match is None:
                 continue
             profile = match.group("profile")
+            if profiles is not None and profile not in profiles:
+                continue
             prev = latest_zip_by_profile.get(profile)
             if prev is None or match.group("stamp") >= BACKUP_NAME_RE.match(prev.name).group("stamp"):
                 latest_zip_by_profile[profile] = zpath
@@ -42,17 +45,22 @@ def auto_restore_drive_backups(runs_root: Path, extra_backup_dir: Optional[Path]
     restored: list[Path] = []
     for profile, zpath in sorted(latest_zip_by_profile.items()):
         dest = runs_root / profile
-        existing_count = len(list(dest.glob("*/*/result.json"))) if dest.is_dir() else 0
         try:
             with zipfile.ZipFile(zpath) as bundle:
                 zip_result_count = sum(1 for item in bundle.namelist() if item.endswith("/result.json"))
-                if existing_count >= zip_result_count and existing_count > 0:
-                    continue
-                dest.mkdir(parents=True, exist_ok=True)
+                missing = []
                 for item in bundle.infolist():
                     if not (dest / item.filename).resolve().is_relative_to(dest.resolve()):
                         raise ValueError(f"Unsafe archive path in {zpath}: {item.filename}")
-                bundle.extractall(dest)
+                    if not item.is_dir() and not (dest / item.filename).is_file():
+                        missing.append(item)
+                if not missing:
+                    continue
+                dest.mkdir(parents=True, exist_ok=True)
+                # Merge missing artifacts, including evaluation sidecars even when
+                # generation sample counts match. Never overwrite local progress.
+                for item in missing:
+                    bundle.extract(item, dest)
                 restored.append(dest)
                 print(f"[Auto-Restore] Restored profile {profile} ({zip_result_count} samples) from {zpath}")
         except Exception as exc:

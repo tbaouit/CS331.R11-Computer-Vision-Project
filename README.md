@@ -10,6 +10,12 @@ Dự án hỗ trợ 2 chế độ thực thi trên GPU (Colab A100):
 
 Xem `docs/COLAB_SETUP.md` để chạy trên Google Colab với notebook `notebooks/Amodal_Completion_Colab.ipynb`. Chi tiết kiến trúc từng bước xem tại `docs/PIPELINE.md`.
 
+## Metric và batch lớn
+
+Đã có bước `scripts/evaluate_runs.py` chấm lại ảnh đã lưu, không chạy lại generation: CLIP logit, LPIPS AlexNet, CLIP image-feature cosine, SSIM và PSNR theo protocol visible-mask-over-black của code tác giả. Kết quả gồm CSV từng object, mean/std/n theo class và mức che; lỗi/missing được ghi riêng. Những metric so với input chỉ đo bảo toàn visible RGB, không đo độ chính xác RGB của vùng ẩn.
+
+Notebook có ô 8 chấm profile cũ và ô 9–11 chuẩn bị/chạy/chấm batch `dev50` hoặc final `test200`, có preflight và backup/resume. Xem [docs/EVALUATION.md](docs/EVALUATION.md) trước khi chạy đánh giá cuối.
+
 ## Cấu trúc thư mục
 
 ```text

@@ -6,6 +6,8 @@ os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.evaluation.runner import run_one
+from src.evaluation.reporting import occlusion_bin, write_json, write_reports
+from src.evaluation.validation import validate_manifest
 
 class Tee:
     def __init__(self, *streams): self.streams = streams
@@ -41,6 +43,8 @@ def main():
     parser.add_argument("--backup-dir", type=Path)
     parser.add_argument("--backup-every", type=int, default=5)
     parser.add_argument("--allow-test", action="store_true", help="Explicit final-test run after configuration is frozen")
+    parser.add_argument("--continue-on-error", action="store_true", help="Record sample errors and continue; CUDA OOM still stops")
+    parser.add_argument("--validate-only", action="store_true", help="Validate prepared data without importing torch or loading models")
     args = parser.parse_args()
     config = json.loads(args.config.read_text(encoding="utf-8"))
     if not config.get("enable_critic"):
@@ -55,12 +59,27 @@ def main():
         raise ValueError("Duplicate sample IDs")
     if any(r["split"] == "test" for r in records) and not args.allow_test:
         raise ValueError("Test split is protected; use --allow-test only after freezing configuration")
+    os.chdir(ROOT)
+    print(f"[Preflight] Validating {len(records)} images and visible/amodal/hidden masks...", flush=True)
+    validation = validate_manifest(records, args.manifest.resolve().parent)
+    preflight_path = args.manifest.parent / "preflight.json"
+    write_json(preflight_path, validation)
+    if validation["invalid"]:
+        raise ValueError(f"{validation['invalid']} invalid samples; inspect {preflight_path} before loading models")
+    print("[Preflight] All selected samples valid.", flush=True)
+    if args.validate_only:
+        return
     files = list((ROOT / "src").rglob("*.py"))
     files += [ROOT / name for name in ["installed_gpu_versions.txt", "dependency_versions.json"] if (ROOT / name).is_file()]
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(files))).hexdigest()
     profile = hashlib.sha256(json.dumps(dict(config=config, code_hash=code_hash), sort_keys=True).encode()).hexdigest()[:16]
     output_root = ROOT / "outputs/runs" / profile
     output_root.mkdir(parents=True, exist_ok=True)
+    write_json(output_root / "preflight.json", validation)
+    write_json(output_root / "manifest.json", records)
+    if args.backup_dir:
+        from src.evaluation.comparison import auto_restore_drive_backups
+        auto_restore_drive_backups(ROOT / "outputs/runs", args.backup_dir, profiles={profile})
     (output_root / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     for name in ["installed_gpu_versions.txt", "dependency_versions.json"]:
         if (ROOT / name).is_file(): shutil.copy2(ROOT / name, output_root / name)
@@ -88,6 +107,7 @@ def main():
                 print(f"Profile: {profile} | Mode: {config.get('pipeline_mode', 'improved')} | Targets: {len(records)}", flush=True)
                 for idx, record in enumerate(records, start=1):
                     dirty_backup = True
+                    failed = None
                     try:
                         random.seed(config["seed"]); np.random.seed(config["seed"])
                         torch.manual_seed(config["seed"]); torch.cuda.manual_seed_all(config["seed"])
@@ -95,19 +115,27 @@ def main():
                         results.append(dict(sample_id=record["sample_id"], status="completed", resumed=skipped, metrics=result["metrics"]))
                         print(f"[{idx}/{len(records)}] {record['sample_id']}", "resumed" if skipped else f"completed ({result['seconds']}s)", result["metrics"], flush=True)
                     except Exception as error:
+                        failed = error
                         results.append(dict(sample_id=record["sample_id"], status="failed", error=str(error)))
                         print("FAILED:", record["sample_id"], str(error), flush=True)
-                    (output_root / "summary.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+                        if backend is not None:
+                            backend.models.release_gpu()
+                    results[-1].update(category=record.get("name"), hidden_ratio=record.get("hidden_ratio"),
+                                       occlusion_bin=occlusion_bin(record.get("hidden_ratio")))
+                    write_json(output_root / "summary.json", results)
+                    write_reports(output_root / "generation_report", results, dict(profile=profile, selected=len(records)))
                     log.flush()
                     if results[-1]["status"] == "failed" or idx == len(records) or (args.backup_every > 0 and idx % args.backup_every == 0):
                         backup(output_root, args.backup_dir)
                         dirty_backup = False
-                    if results[-1]["status"] == "failed":
+                    if failed is not None and (not args.continue_on_error or "out of memory" in str(failed).lower()):
                         raise RuntimeError("Stopped after failed sample; inspect pipeline.log/failure.json before retrying")
             finally:
                 log.flush()
                 if dirty_backup:
                     backup(output_root, args.backup_dir)
     print("Results:", output_root, flush=True)
+    if any(r["status"] == "failed" for r in results):
+        raise RuntimeError("Batch finished with failed samples; inspect summary.json (failed samples are never scored as zero)")
 
 if __name__ == "__main__": main()

@@ -1,8 +1,10 @@
-"""Validate the clean dataset and export a fixed train-only smoke batch."""
+"""Audit COCO-A and export reproducible object subsets on train/dev/test."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import random
+from collections import Counter
 from pathlib import Path
 import sys
 
@@ -75,20 +77,40 @@ def overlay(image, mask, color):
 
 
 def export_samples(ds, cfg, out):
-    if ds.split != "train":
-        raise ValueError("Smoke batch is train-only; keep test for final evaluation")
     records, panels, used = [], [], set()
-    for target in ds.targets():
-        if target.region.get("isStuff", 0):
+    rejected, invalid_examples = Counter(), []
+    targets = list(ds.targets())
+    if cfg.get("sampling") == "seeded_shuffle":
+        random.Random(cfg.get("seed", 42)).shuffle(targets)
+    elif cfg.get("sampling", "ordered") != "ordered":
+        raise ValueError("sampling must be ordered or seeded_shuffle")
+    for target in targets:
+        if target.region.get("isStuff", target.region.get("is_stuff", 0)):
+            rejected["stuff"] += 1
             continue
         if cfg["one_object_per_image"] and target.image_id in used:
+            rejected["same_image"] += 1
             continue
         if not target.region.get("visible_mask"):
+            rejected["missing_visible_mask"] += 1
             continue
-        visible, amodal, hidden = target.masks()
+        try:
+            visible, amodal, hidden = target.masks()
+        except Exception as error:
+            rejected["invalid_annotation"] += 1
+            if len(invalid_examples) < 20:
+                invalid_examples.append(dict(sample_id=target.sample_id, error=str(error)))
+            continue
         ratio = float(hidden.sum() / max(1, amodal.sum()))
+        ys, xs = np.where(amodal)
+        bbox_side = min(int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)) if len(xs) else 0
         if (visible.sum() < cfg["min_visible_pixels"] or amodal.sum() < cfg["min_amodal_pixels"]
+                or bbox_side < cfg.get("min_bbox_side", 0)
                 or not cfg["min_hidden_ratio"] <= ratio <= cfg["max_hidden_ratio"]):
+            rejected["size_or_occlusion_filter"] += 1
+            continue
+        if not isinstance(target.region.get("name"), str) or not target.region["name"].strip():
+            rejected["missing_name"] += 1
             continue
         with Image.open(target.image_path) as opened:
             image = np.array(opened.convert("RGB"))
@@ -109,6 +131,10 @@ def export_samples(ds, cfg, out):
         (folder / "sample.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
         records.append(record)
         used.add(target.image_id)
+        if len(panels) >= cfg.get("preview_limit", 20):
+            if len(records) == cfg["limit"]:
+                break
+            continue
         panel = Image.new("RGB", (1000, 280), "white")
         draw = ImageDraw.Draw(panel)
         tiles = [image, overlay(image, visible, (30, 220, 90)),
@@ -122,12 +148,18 @@ def export_samples(ds, cfg, out):
         panels.append(panel)
         if len(records) == cfg["limit"]:
             break
+    (out / "selection_report.json").write_text(json.dumps(dict(
+        selected=len(records), requested=cfg["limit"], rejection_counts=dict(rejected),
+        invalid_examples=invalid_examples, policy=cfg,
+        note="Rejection counts cover candidates visited until requested subset is filled; not a full-dataset census",
+    ), ensure_ascii=False, indent=2), encoding="utf-8")
     if len(records) != cfg["limit"]:
         raise RuntimeError(f"Only {len(records)} eligible targets; requested {cfg['limit']}")
-    sheet = Image.new("RGB", (1000, 280 * len(panels)), "white")
-    for index, panel in enumerate(panels):
-        sheet.paste(panel, (0, index * 280))
-    sheet.save(out / "contact_sheet.jpg")
+    if panels:
+        sheet = Image.new("RGB", (1000, 280 * len(panels)), "white")
+        for index, panel in enumerate(panels):
+            sheet.paste(panel, (0, index * 280))
+        sheet.save(out / "contact_sheet.jpg")
     (out / "manifest.json").write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
     return records
 
@@ -138,20 +170,26 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=ROOT / "configs/data.json")
     parser.add_argument("--verify-hashes", action="store_true", help="Read every JPG and verify against its manifest")
+    parser.add_argument("--allow-test", action="store_true", help="Prepare final test subset only after freezing settings")
     args = parser.parse_args()
     cfg = json.loads(args.config.read_text(encoding="utf-8"))
     root, out = ROOT / cfg["dataset_root"], ROOT / cfg["output_dir"]
-    if cfg["split"] != "train" or not 1 <= cfg["limit"] <= 100:
-        raise ValueError("Use train and a limit of 1..100 for the initial smoke batch")
+    if cfg["split"] not in ("train", "dev", "test") or not 1 <= cfg["limit"] <= 10000:
+        raise ValueError("Use train/dev/test and a positive limit <= 10000")
+    if cfg["split"] == "test" and not args.allow_test:
+        raise ValueError("Test selection requires --allow-test after freezing configuration")
+    old_config = out / "selection_config.json"
+    if old_config.is_file() and json.loads(old_config.read_text(encoding="utf-8")) != cfg:
+        raise ValueError("Output directory already belongs to a different selection; choose a new output_dir")
     report = audit(root, args.verify_hashes)
     out.mkdir(parents=True, exist_ok=True)
     records = export_samples(CocoaDataset(root, cfg["split"]), cfg, out)
-    report["smoke_targets"] = len(records)
-    report["smoke_unique_images"] = len({r["image_id"] for r in records})
+    report["selected_targets"] = len(records)
+    report["selected_unique_images"] = len({r["image_id"] for r in records})
     (out / "audit.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     (out / "selection_config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    print(f"Prepared {len(records)} train objects. Output: {out}", flush=True)
-    print("Model inputs: image.png + visible.png ONLY. gt_* are evaluation labels.")
+    print(f"Prepared {len(records)} {cfg['split']} objects. Output: {out}", flush=True)
+    print("Blind input: image + visible. Mask-given input: image + visible + gt_hidden. GT RGB for hidden regions is unavailable.")
 
 
 if __name__ == "__main__":

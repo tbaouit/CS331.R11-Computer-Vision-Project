@@ -18,6 +18,8 @@
 
 ## So sánh và kiểm thử độc lập
 
+Ô **8** chấm metric trên output đã lưu: nhập đúng `EVAL_PROFILE`, không cần chạy lại 5A/5B. Ô **9–11** dành cho batch lớn: chọn `dev50` trước, sau khi chốt config mới chọn `test200`. CSV, mean/std/n và chính sách diễn giải xem [EVALUATION.md](EVALUATION.md). Chạy bước metric sau khi process generation kết thúc để không cạnh tranh VRAM. Ô 6 giới hạn 10 preview; ô 7 vẫn là bảng/lưới smoke 10 mẫu, không dùng để render hàng trăm mẫu.
+
 `scripts/compare_runs.py` mặc định chỉ đọc `--runs-root`. Chỉ khi có
 `--backup-dir` mới khôi phục ZIP từ thư mục backup đó. Ô 7 của notebook đã truyền
 `--backup-dir` tới thư mục `results` trên Drive. Các test dùng dữ liệu giả trong

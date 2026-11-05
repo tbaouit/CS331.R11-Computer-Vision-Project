@@ -24,7 +24,7 @@ def read_rgb(path):
 
 def read_mask(path):
     with Image.open(path) as image:
-        return np.array(image.convert("L")) > 127
+        return np.array(image.convert("L")) > 0
 
 
 def crop_original(array, pad, original_shape):
@@ -141,7 +141,8 @@ def run_one(record, sample_root, output_root, config, backend, profile):
             from src.evaluation.appearance_metrics import compute_visible_appearance_metrics
 
             metrics.update(
-                compute_visible_appearance_metrics(image, rgba[:, :, :3], visible, record.get("name", "object"))
+                compute_visible_appearance_metrics(image, rgba[:, :, :3], visible, record.get("name", "object"),
+                                                  device=config.get("appearance_metrics_device", "cpu"))
             )
         mask_lbl = "Exact Amodal (Vis+Occ)" if oracle_mode else "Amodal prediction"
         preview(image, visible, amodal, rgba, job / "preview.jpg", mask_label=mask_lbl)
@@ -160,7 +161,7 @@ def run_one(record, sample_root, output_root, config, backend, profile):
             critique_history=history,
             trace=trace,
             metrics=metrics,
-            metric_policy="IoU on original canvas; optional LPIPS/feature/SSIM on visible mask over black; CLIP on cropped RGB",
+            metric_policy="IoU on original canvas (GT-given mask has trivial IoU); optional author LPIPS/CLIP-feature/SSIM/PSNR on visible mask over black; CLIP logit on full RGB",
             config=config,
         )
         (job / "trace.json").write_text(json.dumps(trace, indent=2), encoding="utf-8")
