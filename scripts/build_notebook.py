@@ -142,6 +142,10 @@ if not profiles: raise RuntimeError("No successful output; inspect pipeline.log 
 latest_profile = profiles[-1]
 print("Latest profile:", latest_profile)
 result_files = sorted(latest_profile.glob("*/*/result.json"))
+if globals().get("BATCH_MANIFEST"):
+    active_ids = {r["sample_id"] for r in json.loads((PROJECT / BATCH_MANIFEST).read_text())}
+    result_files = [p for p in result_files if p.parent.parent.name in active_ids]
+    print("Preview subset:", BATCH_MANIFEST)
 print("Completed samples:", len(result_files), "— showing at most 10 previews")
 for res_file in result_files[:10]:
     res = json.loads(res_file.read_text())
@@ -158,30 +162,33 @@ display(Image.open(PROJECT / "outputs/runs/comparison_grid.jpg"))
 EVAL_MANIFEST = "outputs/train_smoke/manifest.json"
 sh(PYTHON, "scripts/evaluate_runs.py", "--profile", EVAL_PROFILE,
    "--manifest", EVAL_MANIFEST, "--device", "cuda", "--backup-dir", str(DRIVE / "results"))
-reports = sorted((PROJECT / "outputs/runs" / EVAL_PROFILE / "evaluation").glob("*/aggregate.json"),
+reports = sorted((PROJECT / "outputs/runs" / EVAL_PROFILE / "evaluation").glob("*/*/aggregate.json"),
                  key=lambda p: p.stat().st_mtime)
 report_path = reports[-1]
 report = json.loads(report_path.read_text())
 print(json.dumps(report["overall"], indent=2))
 print("CSV:", report_path.parent / "metrics.csv")
 ''')
-    md("## 9. Chuẩn bị batch lớn: 50 dev hoặc 200 test\nBắt đầu với `dev50`. Chỉ chuyển sang `test200` khi đã chốt cấu hình và không sửa theo kết quả test. Dữ liệu được chọn bằng seed cố định, một object/ảnh, có lọc kích thước và tỷ lệ che 10–60%; không resize ảnh gốc. Contact sheet chỉ hiển thị tối đa 20 mẫu.")
-    code('''BATCH = "dev50"  # "dev50" để phát triển; "test200" cho đánh giá cuối
-FINAL_TEST = False  # chỉ đặt True khi đã chốt cấu hình và chọn test200
-if BATCH not in ("dev50", "test200"):
-    raise ValueError("Choose dev50 or test200")
-if BATCH == "test200" and not FINAL_TEST:
+    md("## 9. Chuẩn bị batch lớn: test400\nĐã hoàn tất dev50; mặc định chạy đánh giá cuối test400 với cấu hình khôi phục giữ nguyên. Không chỉnh tham số theo kết quả test. Dữ liệu dùng seed cố định, một object/ảnh, lọc kích thước và tỷ lệ che 10–60%; không resize ảnh gốc. Contact sheet tối đa 20 mẫu. Có thể chọn lại dev50 để kiểm tra.")
+    code('''BATCH = "test400"  # dev50, test200 hoặc test400
+FINAL_TEST = True  # đã chốt cấu hình sau dev50
+batch_sizes = {"dev50": 50, "test200": 200, "test400": 400}
+if BATCH not in batch_sizes:
+    raise ValueError("Choose dev50, test200 or test400")
+if BATCH.startswith("test") and not FINAL_TEST:
     raise ValueError("Chốt cấu hình trước khi mở final test")
-extra = ["--allow-test"] if BATCH == "test200" else []
+extra = ["--allow-test"] if BATCH.startswith("test") else []
 sh(PYTHON, "scripts/prepare_data.py", "--config", f"configs/data_{BATCH}.json", *extra)
 BATCH_MANIFEST = f"outputs/{BATCH}/manifest.json"
 sh(PYTHON, "scripts/run_experiment.py", "--manifest", BATCH_MANIFEST,
-   "--config", "configs/oracle_mask.json", "--limit", "50" if BATCH == "dev50" else "200",
+   "--config", "configs/oracle_mask.json", "--limit", str(batch_sizes[BATCH]),
    "--validate-only", *extra)
 display(Image.open(PROJECT / f"outputs/{BATCH}/contact_sheet.jpg"))
 ''')
     md("## 10. Chạy batch lớn và lưu tiến độ trên Drive\nNhánh mask-given là bài toán chính. Cùng runtime/config/code/manifest sẽ tự bỏ qua output hợp lệ; phiên mới tự khôi phục đúng profile từ backup. Dừng ở lỗi để kiểm tra; có thể thêm `--continue-on-error` nếu muốn ghi nhận lỗi từng mẫu và tiếp tục (OOM vẫn dừng). Không chạy song song các ô GPU.")
     code('''batch_records = json.loads((PROJECT / BATCH_MANIFEST).read_text())
+if len(batch_records) != batch_sizes[BATCH]:
+    raise ValueError("Manifest does not contain the requested batch size")
 sh(PYTHON, "scripts/run_experiment.py", "--manifest", BATCH_MANIFEST,
    "--config", "configs/oracle_mask.json", "--limit", str(len(batch_records)),
    "--backup-every", "5", "--backup-dir", str(DRIVE / "results"), *extra)

@@ -1,5 +1,20 @@
 # Đánh giá COCO-A theo code SCAmodal
 
+## Final test400 sau dev50
+
+Đã chọn đánh giá cuối với 400 object từ 400 ảnh test. Notebook mới mặc định ô 9 là `BATCH="test400"`, `FINAL_TEST=True`. Giữ nguyên `configs/oracle_mask.json` và cùng bộ lọc đã dùng trên dev50. Chạy ô 9 (chuẩn bị + preflight) → 10 (generation) → 11 (metric; điền profile in ở ô 10). Nếu đang ở phiên Colab cũ, chạy ô 2 để cập nhật code, rồi lấy ô 9–11 từ notebook mới trên GitHub; nội dung các ô đang mở không tự cập nhật khi git pull.
+
+CLI tương đương:
+
+```bash
+.venv-gpu/bin/python scripts/prepare_data.py --config configs/data_test400.json --allow-test
+.venv-gpu/bin/python scripts/run_experiment.py --manifest outputs/test400/manifest.json --config configs/oracle_mask.json --limit 400 --allow-test --backup-every 5 --backup-dir /content/drive/MyDrive/CS331/results
+# Điền đúng profile đã in, thay PROFILE_ID
+.venv-gpu/bin/python scripts/evaluate_runs.py --manifest outputs/test400/manifest.json --profile PROFILE_ID --device cuda --backup-dir /content/drive/MyDrive/CS331/results
+```
+
+Không có thay đổi thuật toán hoặc tham số generation trong lần cập nhật test400. Báo cáo metric mới nằm ở `evaluation/<evaluation_id>/<subset_id>/` (subset_id là hash toàn bộ manifest được chọn) để dev50, test400 và các lần chạy giới hạn mẫu không ghi đè nhau. Cache từng sample vẫn tách riêng. Các báo cáo cũ ở `evaluation/<evaluation_id>/` được giữ nguyên. Khi đánh giá cuối, ghi nhận cả mẫu lỗi và không chọn lại mẫu dựa trên chất lượng output.
+
 Bài toán chính: nhận RGB, visible mask và hidden mask được cho sẵn, rồi hoàn thiện RGB vật thể. Không huấn luyện lại model. COCO-A không có RGB ground truth ở vùng bị che tự nhiên.
 
 ## Protocol được triển khai

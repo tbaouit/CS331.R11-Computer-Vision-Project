@@ -113,6 +113,19 @@ class AppearanceEvaluationTests(unittest.TestCase):
         self.assertEqual(result["failed"], 1)
         self.assertEqual(result["missing"], 1)
 
+    def test_different_subsets_keep_separate_reports(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            record, profile, _ = self.fixture(Path(temporary))
+            def fake(*args, **kwargs):
+                return dict(CLIP_score=25., LPIPS=0., Feature_Similarity=1., SSIM=1., PSNR=100.)
+            first, _ = evaluator.evaluate_profile(profile, [record], "cpu", evaluate=fake)
+            before = (first / "aggregate.json").read_bytes()
+            second, _ = evaluator.evaluate_profile(profile, [record, dict(record, sample_id="dev_2")], "cpu", evaluate=fake)
+            self.assertNotEqual(first, second)
+            self.assertEqual((first / "aggregate.json").read_bytes(), before)
+            report = json.loads((second / "aggregate.json").read_text())
+            self.assertEqual(report["overall"]["missing"], 1)
+
     def test_preflight_catches_wrong_hidden_and_nonbinary_mask(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -33,7 +33,8 @@ def evaluate_profile(profile, records, device="cuda", continue_on_error=False, e
             versions[package] = "not installed"
     settings = dict(policy=POLICY, code_sha256=source_hash, device=device, versions=versions)
     evaluation_id = hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()[:12]
-    destination = profile / "evaluation" / evaluation_id
+    subset_id = hashlib.sha256(json.dumps(records, sort_keys=True).encode()).hexdigest()[:12]
+    destination = profile / "evaluation" / evaluation_id / subset_id
     destination.mkdir(parents=True, exist_ok=True)
     write_json(destination / "protocol.json", settings)
     jobs = {}
@@ -95,7 +96,7 @@ def evaluate_profile(profile, records, device="cuda", continue_on_error=False, e
                 fatal = error
         rows.append(row)
         report = write_reports(destination, rows, dict(**settings, generation_profile=profile.name,
-                                                      requested_manifest_samples=len(records)))
+                                                      requested_manifest_samples=len(records), subset_id=subset_id))
         print(f"[Metrics {index}/{len(records)}] {sample_id}: {row['status']}" +
               (" (resumed)" if cached else "") + (f" — {row['error']}" if row.get("error") else ""), flush=True)
         if checkpoint and not cached and backup_every > 0 and index % backup_every == 0:
