@@ -135,7 +135,10 @@ print((PROJECT / "configs/oracle_mask.json").read_text())
     code("""sh(PYTHON, "scripts/run_experiment.py", "--manifest", "outputs/train_smoke/manifest.json", "--config", "configs/improved.json", "--limit", "10", "--backup-dir", str(DRIVE / "results"))
 """)
     md("## 6. Kiểm tra toàn bộ output của profile vừa chạy")
-    code("""runs_dir = PROJECT / "outputs/runs"
+    code("""from PIL import Image
+from IPython.display import display
+
+runs_dir = PROJECT / "outputs/runs"
 profiles = sorted([p for p in runs_dir.iterdir() if p.is_dir() and list(p.glob("*/*/result.json"))],
                   key=lambda d: max(f.stat().st_mtime for f in d.glob("*/*/result.json")))
 if not profiles: raise RuntimeError("No successful output; inspect pipeline.log and failure.json")
@@ -154,7 +157,10 @@ for res_file in result_files[:10]:
     display(Image.open(res_file.parent / "preview.jpg"))
 """)
     md("## 7. So sánh trực tiếp các chế độ (bảng số liệu + lưới ảnh)\nTự động khôi phục các bản backup từ Google Drive (`DRIVE / 'results'`) để xuất bảng và lưới so sánh vào `outputs/runs/comparison_grid.jpg`.")
-    code("""sh(PYTHON, "scripts/compare_runs.py", "--backup-dir", str(DRIVE / "results"))
+    code("""from PIL import Image
+from IPython.display import display
+
+sh(PYTHON, "scripts/compare_runs.py", "--backup-dir", str(DRIVE / "results"))
 display(Image.open(PROJECT / "outputs/runs/comparison_grid.jpg"))
 """)
     md("## 8. Chấm metric theo tác giả trên ảnh đã lưu\nChỉ chạy bước chấm điểm, không sinh lại ảnh. Nhập đúng profile đã in ở đầu lần chạy (có thể dùng profile cũ trên Drive). CLIP là class relevance; LPIPS/CLIP feature/SSIM/PSNR đo bảo toàn vùng nhìn thấy. Xem `docs/EVALUATION.md`.")
@@ -170,7 +176,10 @@ print(json.dumps(report["overall"], indent=2))
 print("CSV:", report_path.parent / "metrics.csv")
 ''')
     md("## 9. Chuẩn bị batch lớn: test400\nĐã hoàn tất dev50; mặc định chạy đánh giá cuối test400 với cấu hình khôi phục giữ nguyên. Không chỉnh tham số theo kết quả test. Dữ liệu dùng seed cố định, một object/ảnh, lọc kích thước và tỷ lệ che 10–60%; không resize ảnh gốc. Contact sheet tối đa 20 mẫu. Có thể chọn lại dev50 để kiểm tra.")
-    code('''BATCH = "test400"  # dev50, test200 hoặc test400
+    code('''from PIL import Image
+from IPython.display import display
+
+BATCH = "test400"  # dev50, test200 hoặc test400
 FINAL_TEST = True  # đã chốt cấu hình sau dev50
 batch_sizes = {"dev50": 50, "test200": 200, "test400": 400}
 if BATCH not in batch_sizes:
