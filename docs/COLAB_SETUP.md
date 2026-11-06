@@ -7,6 +7,8 @@
 
 ## 2. Thứ tự các ô chạy
 
+**Nếu đã có kết quả pipeline chính và chỉ cần baseline:** phiên mới chạy **1 → 2 → 3B → 12 → 13 → 14 → 15**. Phiên đã cài môi trường chạy ô 2 rồi 12–15. Ô 3B bỏ tải checkpoint Pix2Gestalt; baseline chỉ nạp SD2 khi sinh ảnh. Ô 14 dùng profile chính đã lưu trên Drive, không sinh lại 400 ảnh. Xem [BASELINE.md](BASELINE.md).
+
 1. **Ô 1**: Kiểm tra GPU (khuyến nghị A100) và mount Google Drive.
 2. **Ô 2**: Tự động `git clone` hoặc `git pull` code mới nhất từ nhánh `main` về `/content/cs331` và giải nén dataset nếu chưa có.
 3. **Ô 3**: Chạy `scripts/setup_colab.py` (tạo `.venv-gpu`, tải checkpoint Pix2Gestalt) và chạy bộ unit test (`tests/`).

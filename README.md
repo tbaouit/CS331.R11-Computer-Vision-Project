@@ -4,9 +4,12 @@
 
 ## Chế độ thực nghiệm
 
-Dự án hỗ trợ 2 chế độ thực thi trên GPU (Colab A100):
+Dự án hỗ trợ 3 chế độ thực thi trên GPU Colab:
 - **`configs/oracle_mask.json` (`pipeline_mode = "oracle_mask"`)**: Nhận thẳng mask phần bị che từ input (`gt_hidden` / `occluded_mask`) + khôi phục diện mạo vùng khuất.
 - **`configs/improved.json` (`pipeline_mode = "improved"`)**: Tự dự đoán cả mask vùng bị che lẫn diện mạo từ `image.png` và `visible.png`.
+- **`configs/sd2_direct.json` (`pipeline_mode = "sd2_direct"`)**: Baseline inpainting trực tiếp, cùng mask có sẵn, prompt cố định và một pass SD2; chỉ nạp model SD2 khi sinh ảnh.
+
+**Chạy baseline so với kết quả chính đã lưu:** notebook có ô **12–15** để chuẩn bị/chạy/chấm/so sánh dev50 rồi test400. Phiên Colab mới chạy **1 → 2 → 3B → 12–15**; ô 3B bỏ tải checkpoint Pix2Gestalt. Profile chính mặc định `a0ab44af3e253863`, không sinh lại 400 kết quả cũ. Xem [docs/BASELINE.md](docs/BASELINE.md).
 
 Xem `docs/COLAB_SETUP.md` để chạy trên Google Colab với notebook `notebooks/Amodal_Completion_Colab.ipynb`. Chi tiết kiến trúc từng bước xem tại `docs/PIPELINE.md`.
 

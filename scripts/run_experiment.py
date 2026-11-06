@@ -45,11 +45,15 @@ def main():
     parser.add_argument("--allow-test", action="store_true", help="Explicit final-test run after configuration is frozen")
     parser.add_argument("--continue-on-error", action="store_true", help="Record sample errors and continue; CUDA OOM still stops")
     parser.add_argument("--validate-only", action="store_true", help="Validate prepared data without importing torch or loading models")
+    parser.add_argument("--profile-output", type=Path, help="Write the exact successful profile ID for notebook follow-up cells")
     args = parser.parse_args()
     config = json.loads(args.config.read_text(encoding="utf-8"))
-    if not config.get("enable_critic"):
+    if config.get("pipeline_mode") == "sd2_direct":
+        if config.get("enable_critic") or config.get("text_query_policy", "empty") != "empty":
+            raise ValueError("SD2 Direct requires enable_critic=false and a fixed category-free prompt")
+    elif not config.get("enable_critic"):
         raise ValueError("This entry point requires enable_critic=true")
-    if not 1 <= config["max_critic_iter"] <= 10 or not 0 <= config["critique_threshold"] <= 10:
+    elif not 1 <= config["max_critic_iter"] <= 10 or not 0 <= config["critique_threshold"] <= 10:
         raise ValueError("Invalid critic settings")
     records = json.loads(args.manifest.read_text(encoding="utf-8"))
     if args.limit < 1: raise ValueError("--limit must be positive")
@@ -137,5 +141,9 @@ def main():
     print("Results:", output_root, flush=True)
     if any(r["status"] == "failed" for r in results):
         raise RuntimeError("Batch finished with failed samples; inspect summary.json (failed samples are never scored as zero)")
+    if args.profile_output:
+        args.profile_output.parent.mkdir(parents=True, exist_ok=True)
+        write_json(args.profile_output, dict(profile=profile, pipeline_mode=config.get("pipeline_mode"),
+                                            manifest=str(args.manifest), completed=len(results)))
 
 if __name__ == "__main__": main()

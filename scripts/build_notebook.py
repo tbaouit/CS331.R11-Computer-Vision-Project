@@ -29,6 +29,8 @@ Qwen3-VL semantic reasoning → Pix2Gestalt / CarveKit prior → Hybrid SD2 ROI 
 - **Chế độ chạy**:
   - `configs/improved.json` (`pipeline_mode = "improved"`): tự dự đoán cả vùng bị che lẫn ngoại hình.
   - `configs/oracle_mask.json` (`pipeline_mode = "oracle_mask"`): **nhận thẳng mask phần bị che từ input** (`gt_hidden` / `occluded_mask`) theo thiết lập Mask-Guided Amodal Appearance Completion.
+  - `configs/sd2_direct.json`: **baseline SD2 Direct**, mask có sẵn, prompt cố định, sinh một lần.
+- **Chỉ chạy baseline và so với 400 kết quả đã có:** phiên mới chạy **1 → 2 → 3B → 12 → 13 → 14 → 15**. Phiên đã cài môi trường: cập nhật ô 2 rồi chạy 12–15. Bỏ qua 4–11; không sinh lại pipeline chính. Ô 12 mặc định dev50, sau khi chốt baseline chuyển sang test400.
 """)
     md("## 1. GPU và Google Drive\nẨn thanh tiến trình phần trăm; vẫn hiển thị trạng thái tải model, kết quả từng mẫu và lỗi. Log của pipeline vẫn được lưu trong `outputs/runs/<profile>/pipeline.log`.")
     code("""import subprocess, sys, os, shutil, zipfile, json, base64, re
@@ -121,6 +123,10 @@ print("Free GiB:", round(shutil.disk_usage(PROJECT).free / 1024**3, 1))
     code("""sh(sys.executable, "scripts/setup_colab.py")
 sh(PYTHON, "-m", "unittest", "discover", "-s", "tests", "-v")
 """)
+    md("## 3B. Setup khi CHỈ chạy baseline SD2 Direct (thay ô 3)\nPhiên mới: cài môi trường chung nhưng bỏ tải checkpoint Pix2Gestalt. SD2 và model tính metric tải khi dùng lần đầu. Nếu runtime đã cài đủ từ lần chạy trước, có thể bỏ qua setup và chỉ chạy dòng unit tests.")
+    code('''sh(sys.executable, "scripts/setup_colab.py", "--skip-downloads")
+sh(PYTHON, "-m", "unittest", "discover", "-s", "tests", "-v")
+''')
     md("## 4. Chuẩn bị 10 đối tượng train")
     code("""sh(PYTHON, "scripts/prepare_data.py", "--verify-hashes")
 from PIL import Image
@@ -208,6 +214,66 @@ if BATCH_PROFILE == "PASTE_PROFILE_FROM_CELL_10":
     raise ValueError("Điền profile đã in ở ô 10")
 sh(PYTHON, "scripts/evaluate_runs.py", "--profile", BATCH_PROFILE,
    "--manifest", BATCH_MANIFEST, "--device", "cuda", "--backup-dir", str(DRIVE / "results"))
+''')
+    md("## 12. Baseline: chọn cùng subset và kiểm tra dữ liệu\nDùng **SD2 Direct Inpainting** làm đối chứng cho nhánh mask-given. Chạy dev50 để kiểm tra trước; sau đó giữ nguyên cấu hình, đổi `BASELINE_BATCH=\"test400\"` và `BASELINE_FROZEN=True`, chạy lại 12–15. Dùng manifest đã có; chỉ tạo từ cấu hình seed cố định nếu chưa tồn tại. Không chạy lại ô 10. Xem `docs/BASELINE.md`.")
+    code('''from PIL import Image
+from IPython.display import display
+
+BASELINE_BATCH = "dev50"  # đổi thành "test400" sau khi kiểm tra baseline trên dev
+BASELINE_FROZEN = False  # đổi True khi chốt cấu hình và chạy test400
+baseline_sizes = {"dev50": 50, "test400": 400}
+if BASELINE_BATCH not in baseline_sizes:
+    raise ValueError("Chọn dev50 hoặc test400")
+if BASELINE_BATCH.startswith("test") and not BASELINE_FROZEN:
+    raise ValueError("Chốt baseline trên dev50, rồi đặt BASELINE_FROZEN=True")
+BASELINE_EXTRA = ["--allow-test"] if BASELINE_BATCH.startswith("test") else []
+BASELINE_MANIFEST = f"outputs/{BASELINE_BATCH}/manifest.json"
+if not (PROJECT / BASELINE_MANIFEST).is_file():
+    sh(PYTHON, "scripts/prepare_data.py", "--config", f"configs/data_{BASELINE_BATCH}.json", *BASELINE_EXTRA)
+baseline_records = json.loads((PROJECT / BASELINE_MANIFEST).read_text())
+if len(baseline_records) != baseline_sizes[BASELINE_BATCH]:
+    raise ValueError("Số mẫu trong manifest không đúng batch đã chọn")
+sh(PYTHON, "scripts/run_experiment.py", "--manifest", BASELINE_MANIFEST,
+   "--config", "configs/sd2_direct.json", "--limit", str(len(baseline_records)),
+   "--validate-only", *BASELINE_EXTRA)
+BASELINE_RUN_FILE = PROJECT / f"outputs/baseline_runs/{BASELINE_BATCH}.json"
+print((PROJECT / "configs/sd2_direct.json").read_text())
+''')
+    md("## 13. Sinh baseline + backup/resume\nChỉ nạp SD2; không dùng Pix2Gestalt, Qwen hay critic. Chạy một lần/mẫu, prompt cố định, strength=1, 28 bước, guidance=7, seed=42. Backup mỗi 5 mẫu. Profile baseline được lưu tự động cho ô tiếp theo. Với cùng code/config/môi trường, chạy lại ô này sẽ tiếp tục các mẫu còn thiếu.")
+    code('''sh(PYTHON, "scripts/run_experiment.py", "--manifest", BASELINE_MANIFEST,
+   "--config", "configs/sd2_direct.json", "--limit", str(len(baseline_records)),
+   "--backup-every", "5", "--backup-dir", str(DRIVE / "results"),
+   "--profile-output", str(BASELINE_RUN_FILE), *BASELINE_EXTRA)
+BASELINE_PROFILE = json.loads(BASELINE_RUN_FILE.read_text())["profile"]
+print("Baseline profile:", BASELINE_PROFILE)
+active_ids = {r["sample_id"] for r in baseline_records}
+baseline_previews = sorted((PROJECT / "outputs/runs" / BASELINE_PROFILE).glob("*/*/preview.jpg"))
+for path in [p for p in baseline_previews if p.parent.parent.name in active_ids][:5]:
+    display(Image.open(path))
+''')
+    md("## 14. Chấm cùng protocol trên baseline và pipeline chính đã lưu\nKhông sinh lại ảnh. Profile chính mặc định là `a0ab44af3e253863` đã chạy dev50 + test400; tự khôi phục từ Drive. Nếu dùng kết quả chính khác, sửa `MAIN_PROFILE`. Đánh giá cả hai trong cùng môi trường, dùng lại cache metric hợp lệ. CLIP đo phù hợp nhãn; các metric visible chủ yếu kiểm tra bảo toàn ảnh, không chứng minh khôi phục đúng RGB vùng ẩn.")
+    code('''MAIN_PROFILE = "a0ab44af3e253863"
+BASELINE_PROFILE = json.loads(BASELINE_RUN_FILE.read_text())["profile"]
+for profile in (BASELINE_PROFILE, MAIN_PROFILE):
+    sh(PYTHON, "scripts/evaluate_runs.py", "--profile", profile,
+       "--manifest", BASELINE_MANIFEST, "--device", "cuda",
+       "--backup-dir", str(DRIVE / "results"))
+''')
+    md("## 15. So sánh theo từng mẫu + 20 mẫu trực quan cố định\nKiểm tra cùng ảnh/mask/seed/checkpoint, đầy đủ mẫu và cùng protocol metric trước khi so sánh. Xuất CSV từng cặp, mean/std/n và chênh lệch **Main − Baseline**, nhóm theo class/mức che; 20 mẫu ngẫu nhiên seed=42 chia thành 5 trang crop vật thể. Đánh giá thêm lỗi chất liệu, tay/chân, chữ, vật thể nhỏ và cắt ngoài khung. SeamMAE/ColorHist chỉ là chẩn đoán; không chọn phương pháp thắng chỉ từ hai số này. Đây là so sánh toàn pipeline với baseline đơn giản, ngân sách sinh ảnh khác nhau.")
+    code('''COMPARE_DIR = PROJECT / "outputs/comparisons" / f"{BASELINE_BATCH}_{BASELINE_PROFILE}_vs_{MAIN_PROFILE}"
+sh(PYTHON, "scripts/compare_baseline.py", "--manifest", BASELINE_MANIFEST,
+   "--baseline", BASELINE_PROFILE, "--main-profile", MAIN_PROFILE,
+   "--output-dir", str(COMPARE_DIR), "--preview-count", "20")
+comparison = json.loads((COMPARE_DIR / "comparison.json").read_text())
+for name in comparison["previews"]:
+    display(Image.open(COMPARE_DIR / name))
+print("CSV:", COMPARE_DIR / "paired_metrics.csv")
+print("JSON:", COMPARE_DIR / "comparison.json")
+comparison_backup = DRIVE / "results/comparisons"
+comparison_backup.mkdir(parents=True, exist_ok=True)
+archive = Path(shutil.make_archive(str(COMPARE_DIR), "zip", COMPARE_DIR))
+shutil.copy2(archive, comparison_backup / archive.name)
+print("Comparison backup:", comparison_backup / archive.name)
 ''')
     for i, cell in enumerate(cells):
         cell["id"] = f"amodal-{i:02d}"

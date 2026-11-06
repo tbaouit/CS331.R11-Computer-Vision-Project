@@ -60,7 +60,7 @@ def resolve_sample(base, value):
 
 
 def _uses_occluded_mask_input(config):
-    return config.get("pipeline_mode") in ("oracle_mask", "gt_mask") or bool(config.get("use_occluded_mask_input"))
+    return config.get("pipeline_mode") in ("oracle_mask", "gt_mask", "sd2_direct") or bool(config.get("use_occluded_mask_input"))
 
 
 def run_one(record, sample_root, output_root, config, backend, profile):

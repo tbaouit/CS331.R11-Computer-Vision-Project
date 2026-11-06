@@ -1,4 +1,4 @@
-"""Shared foundation-model container + dispatcher for the two pipeline modes (`improved`, `oracle_mask`)."""
+"""Lazy foundation-model dispatcher for blind, mask-given, and SD2 Direct modes."""
 from __future__ import annotations
 
 import os
@@ -8,7 +8,7 @@ from PIL import Image
 
 os.environ["MPLBACKEND"] = "Agg"
 
-PIPELINE_MODES = ("improved", "oracle_mask")
+PIPELINE_MODES = ("improved", "oracle_mask", "sd2_direct")
 MODE_ALIASES = {"gt_mask": "oracle_mask"}
 TEXT_QUERY_POLICIES = ("empty", "dataset_object_name")
 
@@ -30,7 +30,7 @@ class AmodalBackend:
 
         self.models = FoundationModels(
             inpainting_model_id=config["inpainting_model_id"],
-            clip_model_id=config["clip_model_id"],
+            clip_model_id=config.get("clip_model_id", "openai/clip-vit-base-patch32"),
             vlm_model_id=config.get("vlm_model_id", "Qwen/Qwen3-VL-4B-Instruct"),
             device="cuda",
         )
@@ -41,6 +41,10 @@ class AmodalBackend:
             from src.pipelines.improved_completer import ImprovedAmodalCompleter
 
             self.completer = ImprovedAmodalCompleter(self.models, self.config)
+        elif self.mode == "sd2_direct":
+            from src.pipelines.sd2_direct_completer import SD2DirectCompleter
+
+            self.completer = SD2DirectCompleter(self.models, self.config)
         else:
             from src.pipelines.oracle_completer import OracleMaskAmodalCompleter
 
@@ -55,6 +59,9 @@ class AmodalBackend:
             raise ValueError(f"Unknown text_query_policy: {policy}")
         query = label if policy == "dataset_object_name" else ""
         try:
+            if self.mode == "sd2_direct":
+                return self.completer.complete(image=image, visible_mask=visible,
+                                               occluded_mask=occluded_mask, job_dir=self.job)
             if self.mode == "oracle_mask":
                 if occluded_mask is None:
                     raise ValueError("pipeline_mode='oracle_mask' requires occluded_mask input.")
