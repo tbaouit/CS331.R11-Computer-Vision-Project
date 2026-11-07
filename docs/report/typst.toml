@@ -1,0 +1,10 @@
+[package]
+name = "tbaouit"
+version = "0.1.0"
+entrypoint = "lib.typ"
+authors = ["Nguyễn Thái Bảo"]
+license = "MIT"
+description = "Bộ template và component soạn tài liệu học thuật cho UIT — VNUHCM"
+categories = ["report", "paper", "presentation"]
+keywords = ["vietnamese", "university", "template", "report", "slides"]
+minimum-typst-version = "0.12.0"
