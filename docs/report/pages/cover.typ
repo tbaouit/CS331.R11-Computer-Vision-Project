@@ -6,7 +6,8 @@
     group-name: "Nhóm ",
     members: (), // Nhận vào một mảng chứa các mảng con: (("Tên", "MSSV"), ...)
     date: "",
-    logo: "../assets/LOGO_UIT.PNG" // Đã chỉnh lại theo đường dẫn thư mục assets của bạn
+    // Resolve the default asset relative to this template; callers can pass bytes.
+    logo: read("../assets/LOGO_UIT.PNG", encoding: none)
 ) = {
     block(width: 100%, height: 100%)[
     #set table(stroke: none)

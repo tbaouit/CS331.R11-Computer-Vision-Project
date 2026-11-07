@@ -1,5 +1,4 @@
 #import "lib.typ": *
-
 // 1. Cấu hình giao diện và typography
 #show: report.with(
   theme: "academic",
@@ -18,7 +17,8 @@
     ("Trần Thị Ngọc Quý", "24521496"),
   ),
   date: "Thành phố Hồ Chí Minh, Tháng 10, năm 2026",
-  logo: "/assets/LOGO_UIT.PNG",
+  // Resolve the asset relative to main.typ, independent of the compile root.
+  logo: read("assets/LOGO_UIT.PNG", encoding: none),
 )
 
 // 3. Phần mở đầu (Frontmatter)
