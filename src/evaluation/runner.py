@@ -13,6 +13,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from src.eval.metrics import iou
+from src.evaluation.reporting import write_json
 
 
 # Băm byte của artefact để phát hiện tệp bị đổi hoặc thiếu.
@@ -92,7 +93,12 @@ def run_one(record, sample_root, output_root, config, backend, profile):
     job = output_root / record["sample_id"] / signature[:12]
     # Chỉ dùng lại mẫu đã hoàn thành khi toàn bộ artefact liên quan còn đúng checksum.
     if (job / "result.json").is_file():
-        existing = json.loads((job / "result.json").read_text())
+        try:
+            existing = json.loads((job / "result.json").read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            existing = {}
+        if not isinstance(existing, dict):
+            existing = {}
         artifacts = existing.get("artifact_sha256", {})
         if (
             existing.get("signature") == signature
@@ -101,6 +107,7 @@ def run_one(record, sample_root, output_root, config, backend, profile):
             and all((job / name).is_file() and sha(job / name) == value for name, value in artifacts.items())
         ):
             return existing, True
+        (job / "result.json").unlink()
     job.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     (job / "sample.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
@@ -198,7 +205,7 @@ def run_one(record, sample_root, output_root, config, backend, profile):
                           if (job / name).is_file()]
         # Checksum cho bước resume và chấm lại; result.json được ghi sau ảnh và trace.
         result["artifact_sha256"] = {name: sha(job / name) for name in artifacts}
-        (job / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        write_json(job / "result.json", result)
         if (job / "failure.json").exists():
             (job / "failure.json").unlink()
         return result, False

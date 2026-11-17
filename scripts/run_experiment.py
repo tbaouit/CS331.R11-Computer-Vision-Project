@@ -42,6 +42,17 @@ def backup(job_root, destination):
     finally:
         Path(archive).unlink(missing_ok=True)
 
+# Khóa từng vai trò vào đúng profile và danh sách mẫu trong các phiên Colab khác nhau.
+def mark_profile_state(path, state, status):
+    if path.is_file():
+        previous = json.loads(path.read_text(encoding="utf-8"))
+        if any(previous.get(key) != value for key, value in state.items()):
+            raise ValueError(f"Resume profile or manifest changed: {path}. "
+                             "Use the original environment/config or set a new RUN_NAME in cell 1.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, dict(state, status=status))
+
+
 # Preflight, tính profile, phục hồi artefact, chạy các mẫu còn thiếu và ghi báo cáo.
 def main():
     if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8")
@@ -49,6 +60,10 @@ def main():
     parser.add_argument("--manifest", type=Path, default=ROOT / "outputs/dev50/manifest.json")
     parser.add_argument("--config", type=Path, default=ROOT / "configs/v1_sd15_direct.json")
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--runs-root", type=Path, default=ROOT / "outputs/runs",
+                        help="Write sample artifacts directly here; can be a mounted Drive folder")
+    parser.add_argument("--profile-state", type=Path,
+                        help="Track this batch across sessions; refuse an incompatible profile/manifest")
     parser.add_argument("--backup-dir", type=Path)
     parser.add_argument("--backup-every", type=int, default=5)
     parser.add_argument("--allow-test", action="store_true", help="Explicit final-test run after configuration is frozen")
@@ -83,13 +98,17 @@ def main():
     files += [ROOT / name for name in ["installed_gpu_versions.txt", "dependency_versions.json"] if (ROOT / name).is_file()]
     code_hash = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(files))).hexdigest()
     profile = hashlib.sha256(json.dumps(dict(config=config, code_hash=code_hash), sort_keys=True).encode()).hexdigest()[:16]
-    output_root = ROOT / "outputs/runs" / profile
+    state = dict(profile=profile, requested=len(records),
+                 manifest_sha256=hashlib.sha256(json.dumps(records, sort_keys=True).encode()).hexdigest())
+    if args.profile_state:
+        mark_profile_state(args.profile_state, state, "running")
+    output_root = args.runs_root / profile
     output_root.mkdir(parents=True, exist_ok=True)
     write_json(output_root / "preflight.json", validation)
     write_json(output_root / "manifest.json", records)
     if args.backup_dir:
         from src.evaluation.backups import auto_restore_drive_backups
-        auto_restore_drive_backups(ROOT / "outputs/runs", args.backup_dir, profiles={profile})
+        auto_restore_drive_backups(args.runs_root, args.backup_dir, profiles={profile})
     (output_root / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     for name in ["installed_gpu_versions.txt", "dependency_versions.json"]:
         if (ROOT / name).is_file(): shutil.copy2(ROOT / name, output_root / name)
@@ -150,6 +169,8 @@ def main():
     print("Results:", output_root, flush=True)
     if any(r["status"] == "failed" for r in results):
         raise RuntimeError("Batch finished with failed samples; inspect summary.json (failed samples are never scored as zero)")
+    if args.profile_state:
+        mark_profile_state(args.profile_state, state, "completed")
     if args.profile_output:
         args.profile_output.parent.mkdir(parents=True, exist_ok=True)
         write_json(args.profile_output, dict(profile=profile, pipeline_mode=config.get("pipeline_mode"),

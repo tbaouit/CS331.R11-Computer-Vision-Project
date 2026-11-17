@@ -24,6 +24,8 @@ def clone(url, path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-downloads", action="store_true")
+    parser.add_argument("--evaluation-only", action="store_true",
+                        help="Install dependencies for scoring saved images; skip generator and vendor setup")
     args = parser.parse_args()
     if sys.platform != "linux":
         raise SystemExit("Run this setup in a Colab Linux GPU runtime, not Windows.")
@@ -36,7 +38,18 @@ def main():
     install = uv + ["pip", "install", "--python", str(python)]
     run(install + ["setuptools==75.8.2", "wheel==0.45.1"])
     run(install + ["torch==2.10.0", "torchvision==0.25.0", "--index-url", "https://download.pytorch.org/whl/cu128"])
-    run(install + ["-r", str(ROOT / "requirements-colab.txt")])
+    requirements = ROOT / "requirements-colab.txt"
+    if args.evaluation_only:
+        names = {"numpy", "Pillow", "opencv-python", "transformers", "safetensors",
+                 "scipy", "scikit-image", "lpips", "pytorch-fid", "ftfy"}
+        metric_deps = [line for line in requirements.read_text(encoding="utf-8").splitlines()
+                       if line.partition("==")[0] in names]
+        run(install + metric_deps)
+        run([python, "-c", "import torch, torchvision, transformers, lpips, skimage, pytorch_fid; "
+                           "assert torch.cuda.is_available(), 'Select a Colab GPU'"])
+        print("Environment ready for scoring saved images.", flush=True)
+        return
+    run(install + ["-r", str(requirements)])
     dependencies = {}
     dependencies["pix2gestalt"] = clone("https://github.com/cvlab-columbia/pix2gestalt.git", ROOT / "pix2gestalt")
     (ROOT / "vendor").mkdir(exist_ok=True)

@@ -10,10 +10,14 @@ diện mạo hợp lý trong vùng khuất; hình dạng đầu ra được cố
 | V2 Pipeline | `configs/v2_sd15_pipeline.json` | Qwen cơ bản → Pix2Gestalt/CarveKit → CLIP → tinh chỉnh SD1.5 → critic tổng hợp |
 | V3 Proposed | `configs/v3_sd15_proposed.json` | Qwen micro-attributes, IP-Adapter Plus, latent blending và strict critic |
 
-Mở [notebook Colab](notebooks/Amodal_Completion_Colab.ipynb) và chạy **8 ô theo
-thứ tự**. Ô 4 mặc định `dev50`; đặt `SMOKE_LIMIT = 3` để kiểm tra nhanh. Ô 7 có
-cờ `RUN_NO_IP_ABLATION` để chạy V3 với IP-Adapter tắt. Ô 8 xuất bảng CSV/JSON và lưới ảnh sáu cột vào Drive.
-Khi đã chốt cấu hình trên dev, dùng `BATCH = "test400"`, `FINAL_TEST = True`.
+Mở [notebook Colab](notebooks/Amodal_Completion_Colab.ipynb). Có thể chia việc
+qua nhiều phiên: chạy **ô 1–4** rồi chọn **ô 5 (V1), 6 (V2) hoặc 7 (V3)**.
+Ảnh, manifest, trạng thái profile và điểm được lưu trên Drive. Giữ nguyên
+`RUN_NAME` và `BATCH` để tiếp tục. Khi cả ba xong, có thể mở một phiên chỉ
+đánh giá: đặt `EVALUATION_ONLY = True`, chạy **1–4 → 8**.
+
+Ô 4 mặc định `dev50`; đặt `SMOKE_LIMIT = 3` để thử nhanh. Sau khi chốt cấu hình
+trên dev, dùng `BATCH = "test400"`, `FINAL_TEST = True` và `SMOKE_LIMIT = None`.
 
 - [Cài đặt Colab](docs/COLAB_SETUP.md)
 - [Luồng xử lý và phân công module](docs/PIPELINE.md)

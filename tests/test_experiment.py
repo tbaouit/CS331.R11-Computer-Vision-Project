@@ -43,6 +43,20 @@ class ExperimentTests(unittest.TestCase):
             (job/"completion.png").write_bytes(b"corrupt")
             run_one(record,root,root/"out",cfg,backend,"profile")
             self.assertEqual(backend.calls,2)
+    def test_interrupted_result_json_is_repaired(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            record, backend = self.sample(root), FakeBackend()
+            cfg = {"critique_threshold": 7}
+            output = root / "drive"
+            run_one(record, root, output, cfg, backend, "profile")
+            marker = next(output.rglob("result.json"))
+            marker.write_text("{", encoding="utf-8")
+            _, skipped = run_one(record, root, output, cfg, backend, "profile")
+            self.assertFalse(skipped)
+            self.assertEqual(backend.calls, 2)
+            self.assertEqual(json.loads(marker.read_text(encoding="utf-8"))["status"], "completed")
+
     def test_failure_does_not_mark_complete(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);record=self.sample(root)

@@ -1,6 +1,6 @@
 # Phạm vi: Sinh notebook Colab từ mẫu 8 ô. Thay đổi hướng dẫn hoặc code notebook ở đây rồi sinh
 # lại notebook.
-"""Generate the runnable notebook with exactly eight sequential cells."""
+"""Generate the runnable notebook with eight cells for generation, resume and evaluation."""
 import json
 from pathlib import Path
 
@@ -9,6 +9,9 @@ CELLS = [
 '''# 1. Môi trường và Google Drive
 import subprocess, sys, os, shutil, zipfile, json, base64, re
 from pathlib import Path
+# Dùng cùng tên qua các phiên để tìm lại kết quả trên Drive.
+RUN_NAME = "sd15"
+EVALUATION_ONLY = False  # True nếu phiên này chỉ để đánh giá ảnh đã sinh.
 os.environ["MPLBACKEND"] = "Agg"
 def sh(*cmd, extra_env=None):
     env = {
@@ -30,7 +33,17 @@ from google.colab import drive
 drive.mount("/content/drive")
 DRIVE = Path("/content/drive/MyDrive/CS331") if Path("/content/drive/MyDrive/CS331").is_dir() else Path("/content/drive/MyDrive/amodal_project")
 (DRIVE / "results").mkdir(parents=True, exist_ok=True)
-print("DRIVE:", DRIVE)
+if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", RUN_NAME):
+    raise ValueError("RUN_NAME dùng chữ, số, dấu gạch ngang hoặc gạch dưới")
+EXPERIMENT = DRIVE / "results" / RUN_NAME
+EXPERIMENT.mkdir(parents=True, exist_ok=True)
+print("Lưu kết quả trên Drive:", EXPERIMENT)
+
+def save_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(path.suffix + ".part")
+    temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temp, path)
 for secret_name in ("HF_TOKEN", "GITHUB_TOKEN"):
     try:
         from google.colab import userdata
@@ -49,17 +62,35 @@ if os.environ.get("GITHUB_TOKEN"):
     auth = base64.b64encode(("x-access-token:" + os.environ["GITHUB_TOKEN"]).encode()).decode()
     git_env = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
                "GIT_CONFIG_VALUE_0": "AUTHORIZATION: basic " + auth}
-if (PROJECT / ".git").is_dir():
-    sh("git", "-C", PROJECT, "pull", "--ff-only", "origin", "main", extra_env=git_env)
-elif PROJECT.exists() and any(PROJECT.iterdir()):
-    raise RuntimeError("Move the existing non-Git /content/cs331 directory aside before cloning")
-else:
+repo_lock = EXPERIMENT / "repo_commit.json"
+if EVALUATION_ONLY and not repo_lock.is_file():
+    raise FileNotFoundError("Chưa có đợt chạy trên Drive. Kiểm tra RUN_NAME ở ô 1.")
+if not (PROJECT / ".git").is_dir():
+    if PROJECT.exists() and any(PROJECT.iterdir()):
+        raise RuntimeError("Move the existing non-Git /content/cs331 directory aside before cloning")
     sh("git", "clone", "--branch", "main", REPO_URL, PROJECT, extra_env=git_env)
 
+# Giữ cố định mã nguồn giữa các lần resume. RUN_NAME mới lấy mã mới từ main.
+if repo_lock.is_file():
+    commit = json.loads(repo_lock.read_text(encoding="utf-8"))["commit"]
+    if not re.fullmatch(r"[a-f0-9]{40}", commit):
+        raise ValueError("Mã commit trên Drive không hợp lệ")
+else:
+    sh("git", "-C", PROJECT, "fetch", "origin", "main", extra_env=git_env)
+    commit = subprocess.check_output(["git", "-C", str(PROJECT), "rev-parse", "FETCH_HEAD"], text=True).strip()
+present = subprocess.run(["git", "-C", str(PROJECT), "cat-file", "-e", commit + "^{commit}"],
+                         capture_output=True).returncode == 0
+if not present:
+    sh("git", "-C", PROJECT, "fetch", "origin", commit, extra_env=git_env)
+sh("git", "-C", PROJECT, "checkout", "--detach", commit)
+if not repo_lock.is_file():
+    save_json(repo_lock, {"commit": commit})
 os.chdir(PROJECT)
 sh("git", "log", "-n", "1", "--oneline")
 
-if not (PROJECT / "dataset/cocoa/dataset.json").is_file():
+if EVALUATION_ONLY:
+    print("Chỉ đánh giá: không cần giải nén COCO-A")
+elif not (PROJECT / "dataset/cocoa/dataset.json").is_file():
     candidates = [
         DRIVE / "cocoa_dataset.zip",
         DRIVE / "data/cocoa_dataset.zip",
@@ -87,8 +118,13 @@ else:
 print("Free GiB:", round(shutil.disk_usage(PROJECT).free / 1024**3, 1))
 ''',
 '''# 3. Cài thư viện, tải trọng số và kiểm thử
-sh(sys.executable, "scripts/setup_colab.py")
-sh(PYTHON, "-m", "unittest", "discover", "-s", "tests", "-v")
+if EVALUATION_ONLY:
+    sh(sys.executable, "scripts/setup_colab.py", "--evaluation-only")
+else:
+    PRELOAD_GENERATION_WEIGHTS = True  # Có thể đặt False nếu phiên này chỉ chạy V1.
+    setup_flags = [] if PRELOAD_GENERATION_WEIGHTS else ["--skip-downloads"]
+    sh(sys.executable, "scripts/setup_colab.py", *setup_flags)
+    sh(PYTHON, "-m", "unittest", "discover", "-s", "tests", "-v")
 ''',
 '''# 4. Chuẩn bị cùng tập mẫu cho mọi phiên bản
 BATCH = "dev50"  # Switch to "test400" only after selecting the final settings.
@@ -103,28 +139,53 @@ N = sizes[BATCH] if SMOKE_LIMIT is None else SMOKE_LIMIT
 if type(N) is not int or not 1 <= N <= sizes[BATCH]:
     raise ValueError("Invalid smoke limit")
 extra = ["--allow-test"] if BATCH == "test400" else []
-manifest = PROJECT / "outputs" / BATCH / "manifest.json"
-if not manifest.is_file():
-    sh(PYTHON, "scripts/prepare_data.py", "--config", f"configs/data_{BATCH}.json", *extra)
-records = json.loads(manifest.read_text(encoding="utf-8"))
-if len(records) != sizes[BATCH] or any(r["split"] != BATCH.rstrip("0123456789") for r in records):
-    raise ValueError("Manifest does not match the requested split or size")
-if N < len(records):
-    manifest = manifest.with_name(f"first_{N}.json")
-    manifest.write_text(json.dumps(records[:N], ensure_ascii=False, indent=2), encoding="utf-8")
+DATA_RUN = EXPERIMENT / f"{BATCH}_{N}"
+RUNS_ROOT = DATA_RUN / "runs"
+saved_manifest = DATA_RUN / "manifest.json"
 configs = dict(v1="v1_sd15_direct", v2="v2_sd15_pipeline",
                v3="v3_sd15_proposed")
-sh(PYTHON, "scripts/run_experiment.py", "--manifest", manifest, "--limit", N,
-   "--config", "configs/v1_sd15_direct.json", "--validate-only", *extra)
+
+if EVALUATION_ONLY:
+    manifest = saved_manifest
+    if not manifest.is_file():
+        raise FileNotFoundError(f"Không tìm thấy manifest trên Drive: {manifest}")
+    records = json.loads(manifest.read_text(encoding="utf-8"))
+    if len(records) != N or any(r["split"] != BATCH.rstrip("0123456789") for r in records):
+        raise ValueError("Manifest trên Drive không khớp batch đã chọn")
+else:
+    manifest = PROJECT / "outputs" / BATCH / "manifest.json"
+    if not manifest.is_file():
+        sh(PYTHON, "scripts/prepare_data.py", "--config", f"configs/data_{BATCH}.json", *extra)
+    records = json.loads(manifest.read_text(encoding="utf-8"))
+    if len(records) != sizes[BATCH] or any(r["split"] != BATCH.rstrip("0123456789") for r in records):
+        raise ValueError("Manifest không khớp split hoặc kích thước đã chọn")
+    records = records[:N]
+    if N < sizes[BATCH]:
+        manifest = manifest.with_name(f"first_{N}.json")
+        save_json(manifest, records)
+    sh(PYTHON, "scripts/run_experiment.py", "--manifest", manifest, "--limit", N,
+       "--config", "configs/v1_sd15_direct.json", "--validate-only", *extra)
+    if saved_manifest.is_file():
+        if records != json.loads(saved_manifest.read_text(encoding="utf-8")):
+            raise ValueError("Danh sách mẫu đã đổi. Dùng lại dataset gốc hoặc đặt RUN_NAME mới ở ô 1.")
+    else:
+        save_json(saved_manifest, records)
 
 def marker(role):
-    return PROJECT / "outputs" / "experiment_profiles" / f"{BATCH}_{N}_{role}.json"
+    return DATA_RUN / "profiles" / f"{role}.json"
 
 def run_version(role, config=None):
+    if EVALUATION_ONLY:
+        raise RuntimeError("Phiên này chỉ đánh giá; bỏ qua ô 5–7.")
     config = config or f"configs/{configs[role]}.json"
     sh(PYTHON, "scripts/run_experiment.py", "--manifest", manifest, "--limit", N,
-       "--config", config, "--backup-dir", DRIVE / "results",
-       "--profile-output", marker(role), *extra)
+       "--config", config, "--runs-root", RUNS_ROOT,
+       "--profile-state", marker(role), *extra)
+
+print("Batch trên Drive:", DATA_RUN)
+for role in configs:
+    state = json.loads(marker(role).read_text(encoding="utf-8")) if marker(role).is_file() else {}
+    print(role, state.get("status", "chưa chạy"), state.get("profile", ""))
 ''',
 '''# 5. Chạy V1: SD1.5 Direct
 run_version("v1")
@@ -139,24 +200,42 @@ if RUN_NO_IP_ABLATION:
     ablation_path = marker("v3_no_ip").with_name("v3_no_ip_config.json")
     ablation_path.parent.mkdir(parents=True, exist_ok=True)
     proposed = json.loads((PROJECT / "configs/v3_sd15_proposed.json").read_text(encoding="utf-8"))
-    ablation_path.write_text(json.dumps(dict(proposed, use_ip_adapter=False), indent=2), encoding="utf-8")
+    save_json(ablation_path, dict(proposed, use_ip_adapter=False))
     run_version("v3_no_ip", ablation_path)
 ''',
 '''# 8. Đánh giá, so sánh và lưu báo cáo
 from PIL import Image
 from IPython.display import display
 FID_REFERENCE = None  # For test400, set to a Drive folder of >=400 clean object crops.
-roles = ["v1", "v2", "v3"] + (["v3_no_ip"] if RUN_NO_IP_ABLATION else [])
-profiles = {role: json.loads(marker(role).read_text(encoding="utf-8"))["profile"] for role in roles}
+EVALUATE_ABLATION = False  # True nếu muốn chấm thêm V3 no IP đã chạy xong.
+import hashlib
+roles = ["v1", "v2", "v3"] + (["v3_no_ip"] if EVALUATE_ABLATION else [])
+profiles, pending = {}, []
+saved_records = json.loads(saved_manifest.read_text(encoding="utf-8"))
+manifest_sha = hashlib.sha256(json.dumps(saved_records, sort_keys=True).encode()).hexdigest()
+for role in roles:
+    state = json.loads(marker(role).read_text(encoding="utf-8")) if marker(role).is_file() else {}
+    profile = state.get("profile", "")
+    if (state.get("status") != "completed" or state.get("requested") != N
+            or state.get("manifest_sha256") != manifest_sha
+            or not re.fullmatch(r"[a-f0-9]{16}", profile)
+            or not (RUNS_ROOT / profile).is_dir()):
+        pending.append(role)
+    else:
+        profiles[role] = profile
+if pending:
+    raise RuntimeError("Chưa có kết quả hoàn chỉnh cho: " + ", ".join(pending)
+                       + ". Chạy ô sinh ảnh tương ứng hoặc kiểm tra RUN_NAME/BATCH.")
 for profile in profiles.values():
-    sh(PYTHON, "scripts/evaluate_runs.py", "--profile", profile, "--manifest", manifest,
-       "--device", "cuda", "--backup-dir", DRIVE / "results")
+    # Score và sidecar cũng nằm trên Drive; chạy lại ô 8 sẽ dùng lại điểm đã chấm.
+    sh(PYTHON, "scripts/evaluate_runs.py", "--profile", profile, "--manifest", saved_manifest,
+       "--device", "cuda", "--runs-root", RUNS_ROOT)
 output = PROJECT / "outputs" / "comparisons" / (
     f"{BATCH}_{N}_" + "_".join(profiles.values()))
 args = [arg for role, profile in profiles.items()
-        for arg in ("--" + role.replace("_", "-"), PROJECT / "outputs" / "runs" / profile)]
+        for arg in ("--" + role.replace("_", "-"), RUNS_ROOT / profile)]
 fid_args = ["--fid-reference", FID_REFERENCE] if FID_REFERENCE else []
-sh(PYTHON, "scripts/compare_versions.py", "--manifest", manifest, "--output", output, *args, *fid_args)
+sh(PYTHON, "scripts/compare_versions.py", "--manifest", saved_manifest, "--output", output, *args, *fid_args)
 report = json.loads((output / "comparison.json").read_text(encoding="utf-8"))
 for role in roles:
     relevant = {k: v["mean"] for k, v in report["metrics"][role].items()
@@ -166,11 +245,14 @@ if report["fid"]:
     print("FID:", report["fid"])
 for name in report["previews"]:
     display(Image.open(output / name))
-backup = DRIVE / "results" / "comparisons"
+backup = DATA_RUN / "comparisons"
 backup.mkdir(parents=True, exist_ok=True)
 archive = Path(shutil.make_archive(str(output), "zip", output))
-shutil.copy2(archive, backup / archive.name)
-print("CSV, JSON and previews:", backup / archive.name)
+target = backup / archive.name
+partial = target.with_suffix(".zip.part")
+shutil.copy2(archive, partial)
+os.replace(partial, target)
+print("CSV, JSON and previews:", target)
 '''
 ]
 
