@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1360" height="900" viewBox="0 0 1360 900" xml:lang="vi" role="img" aria-labelledby="title desc">
+<title id="title">V1 · Inpainting trực tiếp</title>
+<desc id="desc">Luồng từ ảnh và hai mask COCO-A qua canvas xám, SD 1.5 chạy một lần và ghép RGBA.</desc>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M1 1 L9 5 L1 9 Z" fill="#086d6a"/>
+</marker>
+<marker id="retry" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M1 1 L9 5 L1 9 Z" fill="#93520c"/>
+</marker>
+<pattern id="checks" width="12" height="12" patternUnits="userSpaceOnUse">
+<rect width="12" height="12" fill="#fff"/>
+<path d="M0 0h6v6H0z M6 6h6v6H6z" fill="#e3ebea"/>
+</pattern>
+<path id="vase" d="M56 9 Q70 6 84 9 L82 22 C82 34 104 38 105 55 Q106 76 88 86 Q70 90 52 86 Q34 76 35 55 C36 38 58 34 58 22 Z"/>
+<clipPath id="vaseClip">
+<use xlink:href="#vase"/>
+</clipPath>
+<clipPath id="occ">
+<rect x="0" y="47" width="72" height="50"/>
+</clipPath>
+<clipPath id="vis">
+<path d="M0 0H140V96H72V47H0Z"/>
+</clipPath>
+</defs>
+<rect x="0" y="0" width="1360" height="900" rx="0" fill="#f8faf9" stroke="none"/>
+<g font-family="Segoe UI, Arial, sans-serif">
+<rect x="0" y="0" width="1360" height="165" rx="0" fill="#15323a" stroke="none"/>
+<text x="44" y="38" fill="#9bdbcb" font-size="17" font-weight="650" >COCO-A    /    KHÔI PHỤC VẬT THỂ BỊ CHE KHUẤT</text>
+<text x="44" y="95" fill="#fff" font-size="44" font-weight="680" >Inpainting trực tiếp bằng SD 1.5</text>
+<text x="45" y="135" fill="#deeeea" font-size="21" font-weight="400" >Một prompt cố định và một lượt sinh RGB cho phần bị che.</text>
+<text x="1308" y="59" fill="#9bdbcb" font-size="34" font-weight="700" text-anchor="end">V1</text>
+<text x="44" y="210" fill="#162e39" font-size="25" font-weight="700" >Dữ liệu cho một vật thể</text>
+<text x="1316" y="209" fill="#526a75" font-size="18" font-weight="400" text-anchor="end">Ví dụ minh họa bằng một chiếc bình</text>
+<rect x="44" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
+<g transform="translate(55 246) scale(0.8142857142857143)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#eeebe1" stroke="none"/>
+<rect x="0" y="76" width="140" height="20" rx="0" fill="#cdbfa3" stroke="none"/>
+<use xlink:href="#vase" fill="#79b7ae"/>
+<g clip-path="url(#vaseClip)">
+<path d="M30 45 Q70 59 110 44 M30 51 Q70 65 110 50 M30 74 Q70 88 110 73" fill="none" stroke="#226960" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M60 15 Q70 17 82 14" fill="none" stroke="#3e847a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</g>
+<rect x="0" y="47" width="72" height="46" rx="2" fill="#ba6949" stroke="none"/>
+<path d="M5 52H66 M5 87H66" fill="none" stroke="#e0a386" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</g>
+<text x="180" y="277" fill="#162e39" font-size="19" font-weight="650" >Ảnh RGB</text>
+<text x="180" y="304" fill="#526a75" font-size="17" font-weight="400" >I · cảnh quan sát</text>
+<rect x="366" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
+<g transform="translate(377 246) scale(0.8142857142857143)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#192e38" stroke="none"/>
+<g clip-path="url(#vis)">
+<use xlink:href="#vase" fill="#fff"/>
+</g>
+</g>
+<text x="502" y="277" fill="#162e39" font-size="19" font-weight="650" >Mask nhìn thấy</text>
+<text x="502" y="304" fill="#526a75" font-size="17" font-weight="400" >V · pixel đã biết</text>
+<rect x="688" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
+<g transform="translate(699 246) scale(0.8142857142857143)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#192e38" stroke="none"/>
+<g clip-path="url(#occ)">
+<use xlink:href="#vase" fill="#fff"/>
+</g>
+</g>
+<text x="824" y="277" fill="#162e39" font-size="19" font-weight="650" >Mask bị khuất</text>
+<text x="824" y="304" fill="#526a75" font-size="17" font-weight="400" >H · vùng cần sinh</text>
+<rect x="1010" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
+<g transform="translate(1021 246) scale(0.8142857142857143)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#192e38" stroke="none"/>
+<use xlink:href="#vase" fill="#fff"/>
+</g>
+<text x="1146" y="277" fill="#162e39" font-size="19" font-weight="650" >Mask toàn vật thể</text>
+<text x="1146" y="304" fill="#526a75" font-size="17" font-weight="400" >A = V ∪ H</text>
+<path d="M680 342 V368 H237 V398" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="44" y="407" width="386" height="394" rx="14" fill="#fff" stroke="#cbd9d9"/>
+<rect x="487" y="407" width="386" height="394" rx="14" fill="#fff" stroke="#cbd9d9"/>
+<rect x="930" y="407" width="386" height="394" rx="14" fill="#fff" stroke="#cbd9d9"/>
+<path d="M434 601 H479" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M877 601 H922" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="68" y="445" fill="#086d6a" font-size="16" font-weight="700" >01    /    CHUẨN BỊ</text>
+<text x="68" y="488" fill="#162e39" font-size="28" font-weight="670" >Tạo ảnh khởi tạo</text>
+<g transform="translate(148 510) scale(1.2857142857142858)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#fff" stroke="none"/>
+<use xlink:href="#vase" fill="#79b7ae"/>
+<g clip-path="url(#vaseClip)">
+<path d="M30 45 Q70 59 110 44 M30 51 Q70 65 110 50 M30 74 Q70 88 110 73" fill="none" stroke="#226960" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M60 15 Q70 17 82 14" fill="none" stroke="#3e847a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</g>
+<g clip-path="url(#occ)">
+<use xlink:href="#vase" fill="#7f7f7f"/>
+</g>
+</g>
+<text x="68" y="675" fill="#405965" font-size="19" font-weight="400" >Chép RGB gốc vào V, tô xám H</text>
+<text x="68" y="704" fill="#405965" font-size="19" font-weight="400" >và đặt nền trắng ngoài vật thể.</text>
+<text x="68" y="733" fill="#405965" font-size="19" font-weight="400" >Cắt ô vuông quanh A, mở rộng</text>
+<text x="68" y="762" fill="#405965" font-size="19" font-weight="400" >mask inpaint 2 px quanh H.</text>
+<text x="511" y="445" fill="#574488" font-size="16" font-weight="700" >02    /    TẠO SINH</text>
+<text x="511" y="488" fill="#162e39" font-size="28" font-weight="670" >SD 1.5 Inpainting</text>
+<rect x="511" y="516" width="338" height="83" rx="9" fill="#f2eff8" stroke="none"/>
+<text x="528" y="547" fill="#574488" font-size="19" font-weight="650" >Prompt chung cho mọi vật thể</text>
+<text x="528" y="578" fill="#574488" font-size="18" font-weight="400" >“natural colors, realistic texture”</text>
+<text x="511" y="650" fill="#405965" font-size="19" font-weight="400" >Thu ảnh và mask về 512 × 512.</text>
+<text x="511" y="679" fill="#405965" font-size="19" font-weight="400" >Khử nhiễu với bộ lấy mẫu DDIM.</text>
+<text x="511" y="708" fill="#405965" font-size="19" font-weight="400" >28 bước · guidance 7 · strength 1.</text>
+<text x="511" y="737" fill="#405965" font-size="19" font-weight="400" >Đưa ảnh sinh về tọa độ ban đầu.</text>
+<text x="954" y="445" fill="#086d6a" font-size="16" font-weight="700" >03    /    GHÉP ẢNH</text>
+<text x="954" y="488" fill="#162e39" font-size="28" font-weight="670" >Xuất vật thể RGBA</text>
+<g transform="translate(1033 510) scale(1.2857142857142858)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="url(#checks)" stroke="none"/>
+<use xlink:href="#vase" fill="#79b7ae"/>
+<g clip-path="url(#vaseClip)">
+<path d="M30 45 Q70 59 110 44 M30 51 Q70 65 110 50 M30 74 Q70 88 110 73" fill="none" stroke="#226960" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M60 15 Q70 17 82 14" fill="none" stroke="#3e847a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</g>
+</g>
+<text x="954" y="675" fill="#405965" font-size="19" font-weight="400" >Lấy RGB vừa sinh trong H.</text>
+<text x="954" y="704" fill="#405965" font-size="19" font-weight="400" >Hòa biên rồi chép lại pixel gốc ở V.</text>
+<text x="954" y="733" fill="#405965" font-size="19" font-weight="400" >Kênh alpha lấy từ mask A,</text>
+<text x="954" y="762" fill="#405965" font-size="19" font-weight="400" >nền ngoài vật thể trong suốt.</text>
+<path d="M44 839 H1316" fill="none" stroke="#cbd9d9" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<text x="44" y="870" fill="#526a75" font-size="18" font-weight="400" >Hình minh họa mô tả luồng xử lý. Màu và họa tiết bên trong H là một khả năng do mô hình sinh ra.</text>
+</g>
+</svg>

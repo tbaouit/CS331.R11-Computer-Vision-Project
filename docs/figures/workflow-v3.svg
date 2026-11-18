@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1360" height="1394" viewBox="0 0 1360 1394" xml:lang="vi" role="img" aria-labelledby="title desc">
+<title id="title">V3 · Khôi phục có hướng dẫn và phản hồi</title>
+<desc id="desc">Ba nguồn hướng dẫn đưa vào SD 1.5, Qwen chấm từng ứng viên, phản hồi trở về bước tinh chỉnh.</desc>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M1 1 L9 5 L1 9 Z" fill="#086d6a"/>
+</marker>
+<marker id="retry" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M1 1 L9 5 L1 9 Z" fill="#93520c"/>
+</marker>
+<pattern id="checks" width="12" height="12" patternUnits="userSpaceOnUse">
+<rect width="12" height="12" fill="#fff"/>
+<path d="M0 0h6v6H0z M6 6h6v6H6z" fill="#e3ebea"/>
+</pattern>
+<path id="vase" d="M56 9 Q70 6 84 9 L82 22 C82 34 104 38 105 55 Q106 76 88 86 Q70 90 52 86 Q34 76 35 55 C36 38 58 34 58 22 Z"/>
+<clipPath id="vaseClip">
+<use xlink:href="#vase"/>
+</clipPath>
+<clipPath id="occ">
+<rect x="0" y="47" width="72" height="50"/>
+</clipPath>
+<clipPath id="vis">
+<path d="M0 0H140V96H72V47H0Z"/>
+</clipPath>
+</defs>
+<rect x="0" y="0" width="1360" height="1394" rx="0" fill="#f8faf9" stroke="none"/>
+<g font-family="Segoe UI, Arial, sans-serif">
+<rect x="0" y="0" width="1360" height="165" rx="0" fill="#15323a" stroke="none"/>
+<text x="44" y="38" fill="#9bdbcb" font-size="17" font-weight="650" >COCO-A    /    KHÔI PHỤC VẬT THỂ BỊ CHE KHUẤT</text>
+<text x="44" y="95" fill="#fff" font-size="44" font-weight="680" >Khôi phục có hướng dẫn và phản hồi</text>
+<text x="45" y="135" fill="#deeeea" font-size="21" font-weight="400" >Mô tả bề mặt, ảnh hoàn chỉnh sơ bộ và vùng nhìn thấy cùng hướng dẫn SD 1.5.</text>
+<text x="1308" y="59" fill="#9bdbcb" font-size="34" font-weight="700" text-anchor="end">V3</text>
+<text x="44" y="210" fill="#162e39" font-size="25" font-weight="700" >Dữ liệu cho một vật thể</text>
+<text x="1316" y="209" fill="#526a75" font-size="18" font-weight="400" text-anchor="end">Ví dụ minh họa bằng một chiếc bình</text>
+<rect x="44" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
+<g transform="translate(55 246) scale(0.8142857142857143)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#eeebe1" stroke="none"/>
+<rect x="0" y="76" width="140" height="20" rx="0" fill="#cdbfa3" stroke="none"/>
+<use xlink:href="#vase" fill="#79b7ae"/>
+<g clip-path="url(#vaseClip)">
+<path d="M30 45 Q70 59 110 44 M30 51 Q70 65 110 50 M30 74 Q70 88 110 73" fill="none" stroke="#226960" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M60 15 Q70 17 82 14" fill="none" stroke="#3e847a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</g>
+<rect x="0" y="47" width="72" height="46" rx="2" fill="#ba6949" stroke="none"/>
+<path d="M5 52H66 M5 87H66" fill="none" stroke="#e0a386" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</g>
+<text x="180" y="277" fill="#162e39" font-size="19" font-weight="650" >Ảnh RGB</text>
+<text x="180" y="304" fill="#526a75" font-size="17" font-weight="400" >I · cảnh quan sát</text>
+<rect x="366" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
+<g transform="translate(377 246) scale(0.8142857142857143)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#192e38" stroke="none"/>
+<g clip-path="url(#vis)">
+<use xlink:href="#vase" fill="#fff"/>
+</g>
+</g>
+<text x="502" y="277" fill="#162e39" font-size="19" font-weight="650" >Mask nhìn thấy</text>
+<text x="502" y="304" fill="#526a75" font-size="17" font-weight="400" >V · pixel đã biết</text>
+<rect x="688" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
+<g transform="translate(699 246) scale(0.8142857142857143)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#192e38" stroke="none"/>
+<g clip-path="url(#occ)">
+<use xlink:href="#vase" fill="#fff"/>
+</g>
+</g>
+<text x="824" y="277" fill="#162e39" font-size="19" font-weight="650" >Mask bị khuất</text>
+<text x="824" y="304" fill="#526a75" font-size="17" font-weight="400" >H · vùng cần sinh</text>
+<rect x="1010" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
+<g transform="translate(1021 246) scale(0.8142857142857143)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#192e38" stroke="none"/>
+<use xlink:href="#vase" fill="#fff"/>
+</g>
+<text x="1146" y="277" fill="#162e39" font-size="19" font-weight="650" >Mask toàn vật thể</text>
+<text x="1146" y="304" fill="#526a75" font-size="17" font-weight="400" >A = V ∪ H</text>
+<path d="M680 342 V365 M237 365 H1123" fill="none" stroke="#086d6a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M237 365 V392" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M680 365 V392" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1123 365 V392" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="44" y="402" width="386" height="266" rx="14" fill="#fff" stroke="#cbd9d9"/>
+<rect x="487" y="402" width="386" height="266" rx="14" fill="#fff" stroke="#cbd9d9"/>
+<rect x="930" y="402" width="386" height="266" rx="14" fill="#fff" stroke="#cbd9d9"/>
+<text x="68" y="436" fill="#574488" font-size="16" font-weight="700" >01    /    HƯỚNG DẪN BẰNG CHỮ</text>
+<text x="68" y="476" fill="#162e39" font-size="27" font-weight="670" >Qwen3-VL + CLIP</text>
+<text x="68" y="515" fill="#405965" font-size="18" font-weight="400" >Qwen đọc cảnh và phần V đã tách,</text>
+<text x="68" y="543" fill="#405965" font-size="18" font-weight="400" >mô tả loại vật, màu, chất liệu, họa tiết.</text>
+<text x="68" y="571" fill="#405965" font-size="18" font-weight="400" >CLIP đối chiếu mô tả với ảnh phần V</text>
+<text x="68" y="599" fill="#405965" font-size="18" font-weight="400" >để chọn prompt cho SD 1.5.</text>
+<rect x="68" y="619" width="338" height="34" rx="6" fill="#f2eff8" stroke="none"/>
+<text x="82" y="642" fill="#574488" font-size="17" font-weight="650" >Đầu ra   ·   Prompt mô tả bề mặt</text>
+<text x="511" y="436" fill="#086d6a" font-size="16" font-weight="700" >02    /    KHỞI TẠO VÙNG KHUẤT</text>
+<text x="511" y="476" fill="#162e39" font-size="27" font-weight="670" >Pix2Gestalt + CarveKit</text>
+<text x="511" y="515" fill="#405965" font-size="18" font-weight="400" >Pix2Gestalt sinh ảnh RGB sơ bộ.</text>
+<text x="511" y="543" fill="#405965" font-size="18" font-weight="400" >CarveKit tách vật thể khỏi nền.</text>
+<text x="511" y="571" fill="#405965" font-size="18" font-weight="400" >Căn màu theo V, bù chỗ thiếu rồi</text>
+<text x="511" y="599" fill="#405965" font-size="18" font-weight="400" >đưa RGB sơ bộ vào vùng H.</text>
+<rect x="511" y="619" width="338" height="34" rx="6" fill="#e6f3ef" stroke="none"/>
+<text x="525" y="642" fill="#086d6a" font-size="17" font-weight="650" >Đầu ra   ·   Ảnh khởi tạo và vùng thiếu</text>
+<text x="954" y="436" fill="#574488" font-size="16" font-weight="700" >03    /    HƯỚNG DẪN BẰNG ẢNH</text>
+<text x="954" y="476" fill="#162e39" font-size="27" font-weight="670" >IP-Adapter Plus</text>
+<g transform="translate(954 498) scale(0.8785714285714286)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="#fff" stroke="none"/>
+<g clip-path="url(#vis)">
+<use xlink:href="#vase" fill="#79b7ae"/>
+<g clip-path="url(#vaseClip)">
+<path d="M30 45 Q70 59 110 44 M30 51 Q70 65 110 50 M30 74 Q70 88 110 73" fill="none" stroke="#226960" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M60 15 Q70 17 82 14" fill="none" stroke="#3e847a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</g>
+</g>
+</g>
+<text x="1092" y="533" fill="#405965" font-size="17" font-weight="400" >Ảnh tham chiếu</text>
+<text x="1092" y="558" fill="#405965" font-size="17" font-weight="400" >chỉ chứa phần V.</text>
+<text x="954" y="601" fill="#405965" font-size="18" font-weight="400" >CLIP ViT-H mã hóa đặc trưng bề mặt.</text>
+<rect x="954" y="619" width="338" height="34" rx="6" fill="#f2eff8" stroke="none"/>
+<text x="968" y="642" fill="#574488" font-size="17" font-weight="650" >Đầu ra   ·   Đặc trưng ảnh, scale 0,5</text>
+<path d="M237 668 V695 H1123 V668 M680 668 V695" fill="none" stroke="#086d6a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M680 695 V717" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="44" y="727" width="1272" height="180" rx="14" fill="#fff" stroke="#cbd9d9"/>
+<text x="68" y="761" fill="#086d6a" font-size="16" font-weight="700" >04    /    TINH CHỈNH ẢNH</text>
+<text x="68" y="806" fill="#162e39" font-size="31" font-weight="670" >SD 1.5 + DDIM</text>
+<text x="68" y="844" fill="#526a75" font-size="20" font-weight="400" >ROI vuông 512 × 512</text>
+<path d="M384 749 V886" fill="none" stroke="#cbd9d9" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<text x="410" y="773" fill="#405965" font-size="19" font-weight="400" >Nhận prompt, ảnh khởi tạo, đặc trưng ảnh và mask inpaint.</text>
+<text x="410" y="804" fill="#405965" font-size="19" font-weight="400" >Mỗi bước DDIM giữ latent sinh trong vùng cho phép sửa và khôi phục latent</text>
+<text x="410" y="835" fill="#405965" font-size="19" font-weight="400" >tham chiếu bên ngoài theo mức nhiễu của bước đó. Sau khi giải mã, khóa màu</text>
+<text x="410" y="866" fill="#405965" font-size="19" font-weight="400" >theo prior, hòa biên, chép lại V và gắn alpha từ A để tạo ứng viên RGBA.</text>
+<path d="M680 907 V941" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="44" y="951" width="1272" height="181" rx="14" fill="#fff" stroke="#cbd9d9"/>
+<text x="68" y="987" fill="#93520c" font-size="16" font-weight="700" >05    /    ĐÁNH GIÁ ỨNG VIÊN</text>
+<text x="68" y="1032" fill="#162e39" font-size="30" font-weight="670" >Qwen3-VL critic</text>
+<text x="68" y="1070" fill="#526a75" font-size="19" font-weight="400" >Tập trung vào H và đường nối.</text>
+<path d="M384 973 V1110" fill="none" stroke="#cbd9d9" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<text x="410" y="994" fill="#405965" font-size="19" font-weight="400" >Đọc bốn ảnh cùng tọa độ: cảnh gốc, phần V, ứng viên và bản đồ V/H.</text>
+<text x="410" y="1026" fill="#405965" font-size="19" font-weight="400" >Chấm độ khớp màu và tính liên tục của cấu trúc, mỗi tiêu chí từ 0 đến 10.</text>
+<text x="410" y="1058" fill="#405965" font-size="19" font-weight="400" >Đạt khi Qwen trả PASS và cả hai điểm đều từ 7 trở lên.</text>
+<text x="410" y="1103" fill="#93520c" font-size="18" font-weight="650" >Nếu bị từ chối và còn lượt: bổ sung chỉ dẫn sửa, đổi seed, tăng guidance.</text>
+<path d="M1316 1098 H1340 V818 H1321" fill="none" stroke="#93520c" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#retry)"/>
+<path d="M680 1132 V1160" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="44" y="1171" width="1272" height="126" rx="12" fill="#e3f1eb" stroke="none"/>
+<g transform="translate(66 1181) scale(1.0571428571428572)">
+<rect x="0" y="0" width="140" height="96" rx="4" fill="url(#checks)" stroke="none"/>
+<use xlink:href="#vase" fill="#79b7ae"/>
+<g clip-path="url(#vaseClip)">
+<path d="M30 45 Q70 59 110 44 M30 51 Q70 65 110 50 M30 74 Q70 88 110 73" fill="none" stroke="#226960" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M60 15 Q70 17 82 14" fill="none" stroke="#3e847a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</g>
+</g>
+<text x="242" y="1216" fill="#086d6a" font-size="25" font-weight="670" >06    /    Chọn ảnh RGBA cuối cùng</text>
+<text x="242" y="1250" fill="#405965" font-size="18" font-weight="400" >Dừng ở ứng viên đầu tiên đạt yêu cầu. Nếu cả 3 lượt đều bị từ chối, chọn ứng viên có điểm tốt nhất.</text>
+<text x="242" y="1278" fill="#405965" font-size="18" font-weight="400" >Lưu ảnh đã chọn cùng điểm, lý do và số lượt thử để phân tích lỗi.</text>
+<path d="M44 1333 H1316" fill="none" stroke="#cbd9d9" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<text x="44" y="1364" fill="#526a75" font-size="18" font-weight="400" >Các nhánh 01–03 biểu diễn ba nguồn hướng dẫn cho bước 04. Đường màu cam là vòng thử lại, tối đa 3 lượt sinh tổng cộng.</text>
+</g>
+</svg>
