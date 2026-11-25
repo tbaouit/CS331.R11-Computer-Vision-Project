@@ -1,4 +1,4 @@
-# Phạm vi: Cả hai phiên bản dùng bộ quản lý model này. Baseline chỉ lấy SD1.5; proposed dùng 4 mô-đun
+# Phạm vi: Cả hai phiên bản dùng bộ quản lý model này. Baseline chỉ lấy SD2; proposed dùng 4 mô-đun
 # lõi của Open-World Amodal (RAM++, CLIP ViT-B/32, GroundingDINO + SAM ViT-H nạp 1 lần, InstaOrder, SD2).
 """Cache models in host RAM and keep only the active generation stage on CUDA (<15GB VRAM)."""
 from __future__ import annotations
@@ -12,36 +12,28 @@ from src.models.openworld_models import (
     RAMPlusModel,
     SAMViTHModel,
 )
-from src.models.pix2gestalt_prior import Pix2GestaltModel
-from src.models.qwen_vl import DEFAULT_VLM_ID, QwenVLModel
 
 
-# Giữ model đã nạp trong RAM và chỉ đưa stage đang dùng lên GPU.
 class FoundationModels:
-    """Lazy, single-GPU model registry shared by both completion pipelines.
+    """Lazy, single-GPU model registry shared by Baseline (SD2) and Proposed (Open-World Amodal SD2).
 
-    Accessing a model property activates that stage and offloads its predecessor.
+    Accessing a model property activates that stage and offloads its predecessor to CPU RAM.
     SAM ViT-H is built once and cached across all iterations and samples.
     """
 
     def __init__(
         self,
         inpainting_model_id: str,
-        clip_model_id: str = "openai/clip-vit-base-patch32",
-        vlm_model_id: str = DEFAULT_VLM_ID,
+        clip_model_id: str = "ViT-B/32",
         device: str = "cuda",
-        advanced_config: dict | None = None,
-        refinement_scheduler: str | None = None,
+        pipeline_config: dict | None = None,
     ):
         self.device = device
         self.inpainting_model_id = inpainting_model_id
         self.clip_model_id = clip_model_id
-        self.vlm_model_id = vlm_model_id
-        self.advanced_config = advanced_config
-        self.refinement_scheduler = refinement_scheduler
+        self.pipeline_config = pipeline_config or {}
         self._models = {}
         self._active = None
-        self._clip_processor = None
         print("[Models] Sequential offload enabled: one stage on GPU; cached weights in CPU RAM.", flush=True)
 
     @staticmethod
@@ -61,7 +53,7 @@ class FoundationModels:
     def _load(self, name: str):
         import torch
 
-        cfg = self.advanced_config or {}
+        cfg = self.pipeline_config
         if name == "ram_plus":
             return RAMPlusModel(
                 ckpt_path=cfg.get("ram_ckpt", "ckpt/ram_plus_swin_large_14m.pth"),
@@ -93,14 +85,10 @@ class FoundationModels:
                 ckpt_path=cfg.get("instaorder_ckpt", "ckpt/InstaOrder_InstaOrderNet_od.pth.tar"),
                 device="cpu",
             )
-        if name == "shape":
-            return Pix2GestaltModel(device="cpu")
-        if name == "vlm":
-            return QwenVLModel(model_id=self.vlm_model_id, device="cpu")
         if name == "inpainting":
             from diffusers import StableDiffusionInpaintPipeline
 
-            print(f"[Models] Loading inpainting pipeline {self.inpainting_model_id} (FP16)...", flush=True)
+            print(f"[Models] Loading SD2 inpainting pipeline {self.inpainting_model_id} (FP16)...", flush=True)
             pipe = StableDiffusionInpaintPipeline.from_pretrained(
                 self.inpainting_model_id,
                 torch_dtype=torch.float16,
@@ -109,22 +97,7 @@ class FoundationModels:
             pipe.set_progress_bar_config(disable=True)
             pipe.enable_attention_slicing()
             pipe.enable_vae_slicing()
-            if self.advanced_config is not None and self.advanced_config.get("use_ip_adapter"):
-                from src.models.sd15_ip_adapter import configure_proposed_pipe
-
-                configure_proposed_pipe(pipe, self.advanced_config)
-            elif self.refinement_scheduler == "ddim":
-                from src.models.sd15_ip_adapter import configure_ddim
-
-                configure_ddim(pipe)
             return pipe
-        if name == "clip":
-            from transformers import CLIPModel, CLIPProcessor
-
-            print(f"[Models] Loading CLIP {self.clip_model_id}...", flush=True)
-            model = CLIPModel.from_pretrained(self.clip_model_id, torch_dtype=torch.float16).eval()
-            self._clip_processor = CLIPProcessor.from_pretrained(self.clip_model_id)
-            return model
         raise ValueError(f"Unknown model stage: {name}")
 
     def _activate(self, name: str):
@@ -166,25 +139,5 @@ class FoundationModels:
         return self._activate("instaorder")
 
     @property
-    def shape_predictor(self):
-        return self._activate("shape")
-
-    @property
-    def vlm(self):
-        return self._activate("vlm")
-
-    @property
     def pipe(self):
         return self._activate("inpainting")
-
-    @property
-    def clip_model(self):
-        return self._activate("clip")
-
-    @property
-    def clip_processor(self):
-        if self._clip_processor is None:
-            from transformers import CLIPProcessor
-
-            self._clip_processor = CLIPProcessor.from_pretrained(self.clip_model_id)
-        return self._clip_processor

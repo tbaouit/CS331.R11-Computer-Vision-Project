@@ -85,7 +85,7 @@ def main():
                 flush=True,
             )
 
-    # 5. Pre-cache Diffusers Inpainting pipelines (SD1.5 for Baseline, SD2 for Proposed)
+    # 5. Pre-cache shared SD2 Inpainting pipeline (used by both Baseline and Proposed)
     sd_ignores = ["*.onnx", "*.xml", "*.msgpack", "*.ckpt", "*.safetensors.index.json"]
     sd_includes = [
         "model_index.json",
@@ -96,17 +96,14 @@ def main():
         "scheduler/*",
         "feature_extractor/*",
     ]
-    for repo in (
-        "stable-diffusion-v1-5/stable-diffusion-inpainting",
-        "stabilityai/stable-diffusion-2-inpainting",
-    ):
-        print(f"[Weights] Caching HuggingFace pipeline {repo} ...", flush=True)
-        try:
-            snapshot_download(repo, allow_patterns=sd_includes, ignore_patterns=sd_ignores, max_workers=2)
-        except Exception as exc:
-            print(f"[Weights] Warning caching {repo}: {exc}", flush=True)
+    repo = "stabilityai/stable-diffusion-2-inpainting"
+    print(f"[Weights] Caching shared HuggingFace pipeline {repo} ...", flush=True)
+    try:
+        snapshot_download(repo, allow_patterns=sd_includes, ignore_patterns=sd_ignores, max_workers=2)
+    except Exception as exc:
+        print(f"[Weights] Warning caching {repo}: {exc}", flush=True)
 
-    print("[Weights] Checkpoint preparation complete (no LISA-13B or LaMa loaded).", flush=True)
+    print("[Weights] Checkpoint preparation complete (SD2 shared; no SD1.5, LISA-13B, or LaMa).", flush=True)
 
 
 if __name__ == "__main__":

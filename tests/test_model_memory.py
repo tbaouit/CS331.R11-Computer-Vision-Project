@@ -1,13 +1,8 @@
-"""CPU regression tests for stage residency and inference-only EMA handling."""
+"""CPU regression tests for sequential GPU stage residency and single-init SAM caching."""
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
-
-import numpy as np
 
 from src.models.memory_manager import FoundationModels
-from src.models.pix2gestalt_prior import apply_inference_ema, Pix2GestaltModel
-from src.models.qwen_vl import QwenVLModel
 from src.pipelines.backend import AmodalBackend
 
 
@@ -31,20 +26,21 @@ class FakeModel:
 
 class ModelMemoryTests(unittest.TestCase):
     def make_registry(self, fail=None):
-        registry = FoundationModels("inpainting-id", "clip-id")
+        registry = FoundationModels("stabilityai/stable-diffusion-2-inpainting", "ViT-B/32")
         events, resident, loads = [], set(), []
+
         def load(name):
             self.assertFalse(resident, "Previous stage must be offloaded before loading next weights")
             loads.append(name)
             return FakeModel(name, events, resident, name == fail)
+
         registry._load = load
         registry._clear_cache = lambda: None
         return registry, events, resident, loads
 
-    def test_lazy_load_and_critic_loop_never_overlap_gpu_models(self):
+    def test_lazy_load_never_overlaps_gpu_models_and_reuses_sam_once(self):
         registry, events, resident, loads = self.make_registry()
         self.assertEqual(loads, [])
-        # Open-World Amodal stages + legacy stages all offload previous stage before activating next.
         sam_first = registry.sam
         self.assertIs(registry.sam, sam_first)
         registry.ram_plus
@@ -53,80 +49,43 @@ class ModelMemoryTests(unittest.TestCase):
         self.assertIs(registry.sam, sam_first)  # SAM ViT-H is reused across iterations, never reloaded!
         registry.instaorder
         registry.pipe
-        first = registry.shape_predictor
-        self.assertIs(registry.shape_predictor, first)
-        registry.vlm
-        registry.clip_model
-        registry.pipe
         registry.release_gpu()
-        self.assertEqual(loads, ["sam", "ram_plus", "openai_clip", "gdino", "instaorder", "inpainting", "shape", "vlm", "clip"])
+        self.assertEqual(loads, ["sam", "ram_plus", "openai_clip", "gdino", "instaorder", "inpainting"])
         self.assertFalse(resident)
         self.assertIsNone(registry._active)
         self.assertEqual(events[:3], [("sam", "cuda"), ("sam", "cpu"), ("ram_plus", "cuda")])
 
     def test_failed_activation_returns_partially_moved_model_to_cpu(self):
-        registry, events, resident, _ = self.make_registry(fail="vlm")
-        registry.shape_predictor
+        registry, events, resident, _ = self.make_registry(fail="gdino")
+        registry.ram_plus
         with self.assertRaisesRegex(RuntimeError, "synthetic CUDA OOM"):
-            registry.vlm
+            registry.gdino
         self.assertFalse(resident)
         self.assertIsNone(registry._active)
-        self.assertEqual(events[-2:], [("vlm", "cuda"), ("vlm", "cpu")])
-
-    def test_ema_weights_are_copied_before_freezing_and_backup_is_removed(self):
-        class TinyDiffusion:
-            def __init__(self):
-                self.use_ema = True
-                self.model = SimpleNamespace(weights=np.array([1., 2.]), requires_grad=True)
-                self.model_ema = SimpleNamespace(copy_to=self.copy_ema)
-            def copy_ema(self, target):
-                if not target.requires_grad:
-                    raise AssertionError("Upstream EMA cannot copy frozen parameters")
-                target.weights[:] = [3., 5.]
-            def requires_grad_(self, flag):
-                self.model.requires_grad = flag
-        model = TinyDiffusion()
-        apply_inference_ema(model)
-        np.testing.assert_array_equal(model.model.weights, [3., 5.])
-        self.assertFalse(model.use_ema)
-        self.assertFalse(model.model.requires_grad)
-        self.assertFalse(hasattr(model, "model_ema"))
-        apply_inference_ema(model)  # no second EMA copy or backup
-        np.testing.assert_array_equal(model.model.weights, [3., 5.])
-
-    def test_wrappers_move_parameters_and_input_device_together(self):
-        for cls in (Pix2GestaltModel, QwenVLModel):
-            with self.subTest(wrapper=cls.__name__):
-                wrapper = cls.__new__(cls)
-                events, resident = [], set()
-                wrapper.model = FakeModel("model", events, resident)
-                wrapper.device = "cpu"
-                self.assertIs(wrapper.to("cuda"), wrapper)
-                self.assertEqual(wrapper.device, "cuda")
-                wrapper.to("cpu")
-                self.assertEqual(wrapper.device, "cpu")
-                self.assertFalse(resident)
+        self.assertEqual(events[-2:], [("gdino", "cuda"), ("gdino", "cpu")])
 
     def test_backend_releases_last_model_on_success_and_error_in_both_modes(self):
-        for mode in ("sd15_direct", "oracle_mask"):
+        for mode in ("baseline", "proposed"):
             for fail in (False, True):
                 with self.subTest(mode=mode, fail=fail):
                     registry, _, resident, _ = self.make_registry()
                     backend = AmodalBackend.__new__(AmodalBackend)
                     backend.models = registry
-                    backend.mode = "baseline" if mode == "sd15_direct" else "proposed"
-                    backend.config, backend.job = {}, None
+                    backend.mode = mode
+                    backend.config, backend.job = {"text_query_policy": "dataset_object_name"}, None
+
                     def complete(**kwargs):
-                        registry.vlm
+                        registry.pipe
                         if fail:
                             raise RuntimeError("synthetic generation failure")
                         return {"finished": True}
+
                     backend.completer = SimpleNamespace(complete=complete)
                     if fail:
                         with self.assertRaisesRegex(RuntimeError, "synthetic generation failure"):
-                            backend.complete(None, None, "object", occluded_mask=1)
+                            backend.complete(None, None, "chair", occluded_mask=1)
                     else:
-                        self.assertEqual(backend.complete(None, None, "object", occluded_mask=1), {"finished": True})
+                        self.assertEqual(backend.complete(None, None, "chair", occluded_mask=1), {"finished": True})
                     self.assertFalse(resident)
                     self.assertIsNone(registry._active)
 

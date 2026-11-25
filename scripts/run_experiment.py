@@ -145,9 +145,6 @@ def main():
                         random.seed(config["seed"]); np.random.seed(config["seed"])
                         torch.manual_seed(config["seed"]); torch.cuda.manual_seed_all(config["seed"])
                         result, skipped = run_one(record, args.manifest.resolve().parent, output_root, config, lazy, profile)
-                        if config.get("pipeline_mode") == "proposed":
-                            from src.evaluation.critic_logs import update_critic_log
-                            update_critic_log(output_root, result)
                         results.append(dict(sample_id=record["sample_id"], status="completed", resumed=skipped, metrics=result["metrics"]))
                         print(f"[{idx}/{len(records)}] {record['sample_id']}", "resumed" if skipped else f"completed ({result['seconds']}s)", result["metrics"], flush=True)
                     except Exception as error:

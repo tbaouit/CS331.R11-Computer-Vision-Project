@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Setup Google Colab environment (16GB-24GB VRAM) for Baseline (SD1.5) & Proposed (Open-World Amodal SD2).
+# Setup Google Colab environment (16GB-24GB VRAM) for Baseline (SD2) & Proposed (Open-World Amodal SD2).
 # Usage on Colab:
 #   bash setup_colab.sh
 set -euo pipefail

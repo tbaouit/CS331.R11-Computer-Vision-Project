@@ -33,7 +33,7 @@ class DriveSessionTests(unittest.TestCase):
     def test_fresh_evaluation_session_uses_drive_and_requires_all_profiles(self):
         with tempfile.TemporaryDirectory() as temp, contextlib.redirect_stdout(io.StringIO()):
             root = Path(temp)
-            experiment = root / "Drive" / "sd15"
+            experiment = root / "Drive" / "sd2"
             batch = experiment / "batch_full"
             records = [{"sample_id": f"dev_{n:03}", "split": "dev"} for n in range(50)]
             runs = batch / "runs"

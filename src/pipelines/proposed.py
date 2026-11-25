@@ -30,30 +30,6 @@ from src.stages.openworld_completion import (
     shrink_edges_to_transparent,
 )
 from src.vision.compositing import finalize_rgba
-from src.vision.roi import extract_square_roi, mask_bbox
-
-
-def critic_panels(image, visible, amodal, completed, size=384):
-    """Four spatially registered panels for visual inspection."""
-    y1, x1, y2, x2 = mask_bbox(amodal)
-    side = max(32, int(round(max(y2 - y1 + 1, x2 - x1 + 1) * 1.2)))
-    roi = dict(y0=(y1 + y2) // 2 - side // 2, x0=(x1 + x2) // 2 - side // 2, size=side)
-    observed = np.full_like(image, 255)
-    observed[visible] = image[visible]
-    result = np.full_like(image, 255)
-    result[amodal] = completed[amodal]
-    regions = np.zeros_like(image)
-    regions[visible] = 255
-    regions[amodal & ~visible] = [40, 130, 255]
-    arrays = [image, observed, result, regions]
-    return [
-        np.array(
-            Image.fromarray(extract_square_roi(a, roi, pad_value=0 if i == 3 else 255)).resize(
-                (size, size), Image.Resampling.NEAREST if i == 3 else Image.Resampling.LANCZOS
-            )
-        )
-        for i, a in enumerate(arrays)
-    ]
 
 
 def remove_duplicates(items: list[str]) -> list[str]:
@@ -152,7 +128,6 @@ class Proposed:
         job = Path(job_dir) if job_dir is not None else None
         if job:
             job.mkdir(parents=True, exist_ok=True)
-            (job / "critic_logs.jsonl").write_text("", encoding="utf-8")
 
         def save_json(name: str, data: dict | list):
             if job:
@@ -175,15 +150,6 @@ class Proposed:
         save_json(
             "prompt_selection.json",
             {"prompt": f"a {inpaint_prompt}", "selected_class": inpaint_prompt, "ram_tags": classes, "text_query": text_query},
-        )
-        save_json(
-            "micro_attributes.json",
-            {
-                "object_class": inpaint_prompt,
-                "ram_classes": classes,
-                "sd_prompt": f"a {inpaint_prompt}",
-                "valid_json": True,
-            },
         )
 
         # 2. GroundingDINO + cached SAM ViT-H instance segmentation + background contour extraction

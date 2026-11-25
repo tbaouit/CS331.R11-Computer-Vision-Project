@@ -2,16 +2,13 @@
   "seed": 42,
   "pipeline_mode": "baseline",
   "use_occluded_mask_input": true,
-  "inpainting_model_id": "stable-diffusion-v1-5/stable-diffusion-inpainting",
+  "inpainting_model_id": "stabilityai/stable-diffusion-2-inpainting",
   "device": "cuda",
-  "text_query_policy": "empty",
+  "text_query_policy": "dataset_object_name",
   "enable_critic": false,
   "appearance_metrics": false,
-  "prompt": "A photograph of a single complete object on a plain white background, natural colors, realistic texture.",
+  "sd_target_size": 512,
   "strength": 1.0,
-  "guidance_scale": 7.0,
-  "num_inference_steps": 28,
-  "refinement_scheduler": "ddim",
-  "use_ip_adapter": false,
-  "use_latent_blending": false
+  "guidance_scale": 7.5,
+  "num_inference_steps": 50
 }

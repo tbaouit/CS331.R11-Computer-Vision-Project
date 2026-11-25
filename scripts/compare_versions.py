@@ -1,4 +1,4 @@
-"""Report comparable SD1.5 experiments on a fixed manifest."""
+"""Report comparable SD2 experiments (Baseline vs. Proposed) on a fixed manifest."""
 import argparse
 from collections import Counter
 import csv

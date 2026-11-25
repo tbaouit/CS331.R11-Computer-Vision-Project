@@ -199,9 +199,11 @@ def run_one(record, sample_root, output_root, config, backend, profile):
         if oracle_mode:
             artifacts.append("occluded_input.png")
         if config.get("pipeline_mode") == "proposed":
-            artifacts += [name for name in ("micro_attributes.json", "critic_logs.jsonl",
-                                         "proposed_selection.json")
-                          if (job / name).is_file()]
+            artifacts += [
+                name
+                for name in ("prompt_selection.json", "proposed_selection.json")
+                if (job / name).is_file()
+            ]
         # Checksum cho bước resume và chấm lại; result.json được ghi sau ảnh và trace.
         result["artifact_sha256"] = {name: sha(job / name) for name in artifacts}
         write_json(job / "result.json", result)

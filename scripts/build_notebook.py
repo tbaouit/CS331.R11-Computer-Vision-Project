@@ -21,7 +21,6 @@ def sh(*cmd, extra_env=None):
     env.update(extra_env or {})
     with subprocess.Popen(list(map(str, cmd)), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env=env) as p:
         for line in p.stdout:
-            # Older Pix2Gestalt/CarveKit tqdm bars may ignore TQDM_DISABLE.
             # Filter only progress-bar lines; keep status messages and errors.
             if re.search(r"[0-9]{1,3}%[|].*[|]", line):
                 continue
@@ -169,7 +168,7 @@ for role in configs:
     state = json.loads(marker(role).read_text(encoding="utf-8")) if marker(role).is_file() else {}
     print(role, state.get("status", "chưa chạy"), state.get("profile", ""))
 ''',
-'''# 5. Chạy Baseline: SD1.5 Direct
+'''# 5. Chạy Baseline: SD2 Direct (1 lượt, cùng tên lớp COCO-A)
 run_version("baseline")
 ''',
 '''# 6. Chạy Proposed: Open-World Amodal (RAM++, CLIP, Grounded-SAM, InstaOrder, SD2)

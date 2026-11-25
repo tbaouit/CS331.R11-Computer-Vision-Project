@@ -1,2 +1,2 @@
-# Phạm vi: Chứa model dùng chung và model riêng proposed; mỗi model được nạp khi cần.
-"""Models modules for the two SD1.5 methods."""
+# Phạm vi: Chứa model dùng chung (SD2) và 4 mô-đun lõi Open-World Amodal; nạp tuần tự theo stage.
+"""Models modules for Baseline (SD2) and Proposed (Open-World Amodal SD2)."""

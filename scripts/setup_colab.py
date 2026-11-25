@@ -1,6 +1,6 @@
 # Phạm vi: Ô 3: tạo môi trường Colab, cài đặt Grounded-Segment-Anything, recognize-anything, InstaOrder, CLIP
-# và tải checkpoint cho cả Baseline (SD1.5) và Proposed (Open-World Amodal SD2).
-"""Isolated Linux/Colab GPU environment setup for Baseline (SD1.5) & Proposed (Open-World Amodal SD2)."""
+# và tải checkpoint cho cả Baseline (SD2) và Proposed (Open-World Amodal SD2).
+"""Isolated Linux/Colab GPU environment setup for Baseline (SD2) & Proposed (Open-World Amodal SD2)."""
 import argparse, json, os, subprocess, sys
 from pathlib import Path
 
