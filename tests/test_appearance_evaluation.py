@@ -42,10 +42,15 @@ class AppearanceEvaluationTests(unittest.TestCase):
         np.testing.assert_array_equal(oclip.call_args.args[0], output)
         self.assertEqual(clip.call_args.args[1:], ("teddy bear", "cpu"))
         self.assertEqual(oclip.call_args.args[1:], ("teddy bear", "cpu"))
-        for call in (lpips.call_args, feature.call_args, vgg.call_args, dino.call_args, ssim.call_args):
+        for call in (lpips.call_args, feature.call_args, vgg.call_args, ssim.call_args):
             a, b = call.args[:2]
             np.testing.assert_array_equal(a, b)
             self.assertFalse(a[~visible].any())
+        # DINO_similarity follows eva_amodal.py: visible object on white bg vs full completed output
+        dino_vis, dino_full = dino.call_args.args[:2]
+        np.testing.assert_array_equal(dino_vis[visible], image[visible])
+        self.assertTrue(np.all(dino_vis[~visible] == 255))
+        np.testing.assert_array_equal(dino_full, output)
         self.assertEqual(
             result,
             dict(

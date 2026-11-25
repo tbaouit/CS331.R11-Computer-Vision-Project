@@ -260,13 +260,14 @@ def compute_visible_appearance_metrics(
         raise ValueError("A nonempty annotation class name is required for CLIP/OpenCLIP")
     original_v = np.where(visible[:, :, None], image, 0).astype(np.uint8)
     completed_v = np.where(visible[:, :, None], completed_rgb, 0).astype(np.uint8)
+    original_v_white = np.where(visible[:, :, None], image, 255).astype(np.uint8)
     return {
         "CLIP_score": clip_score(completed_rgb, object_name, device),
         "OpenCLIP_score": openclip_score(completed_rgb, object_name, device),
         "LPIPS": lpips_distance(completed_v, original_v, device),
         "Feature_Similarity": clip_feature_similarity(completed_v, original_v, device),
         "VGG_similarity": vgg_feature_similarity(completed_v, original_v, device),
-        "DINO_similarity": dino_similarity(completed_v, original_v, device),
+        "DINO_similarity": dino_similarity(original_v_white, completed_rgb, device),
         "SSIM": ssim_score(completed_v, original_v),
         "PSNR": psnr_score(completed_v, original_v),
     }
