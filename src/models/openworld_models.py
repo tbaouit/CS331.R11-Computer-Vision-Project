@@ -88,10 +88,27 @@ def _patch_transformers_legacy_compat() -> None:
 
 
 def _patch_groundingdino_deform_attn() -> None:
-    """Inject a pure-PyTorch GPU `_C.ms_deform_attn_forward` into `ms_deform_attn` when the C++ extension is uncompiled."""
+    """Ensure GroundingDINO uses `ms_deform_attn_core_pytorch` on GPU when `_C` is uncompiled."""
     import importlib
     import types
 
+    # 1. Patch ms_deform_attn.py on disk before/after import so it checks `_C` before calling `.apply`
+    for rel in (
+        "vendor/Grounded-Segment-Anything/GroundingDINO/groundingdino/models/GroundingDINO/ms_deform_attn.py",
+        "Grounded-Segment-Anything/GroundingDINO/groundingdino/models/GroundingDINO/ms_deform_attn.py",
+    ):
+        p = ROOT / rel
+        if p.is_file():
+            try:
+                src = p.read_text(encoding="utf-8")
+                target = "if torch.cuda.is_available() and value.is_cuda:"
+                replacement = 'if torch.cuda.is_available() and value.is_cuda and "_C" in globals() and _C is not None:'
+                if target in src and replacement not in src:
+                    p.write_text(src.replace(target, replacement), encoding="utf-8")
+            except OSError:
+                pass
+
+    # 2. Import both possible module paths and inject `_C.ms_deform_attn_forward` into every loaded copy
     for mod_name in (
         "GroundingDINO.groundingdino.models.GroundingDINO.ms_deform_attn",
         "groundingdino.models.GroundingDINO.ms_deform_attn",
@@ -102,11 +119,14 @@ def _patch_groundingdino_deform_attn() -> None:
             pass
 
     for mod in list(sys.modules.values()):
-        if mod is None or not hasattr(mod, "multi_scale_deform_attn_core_pytorch"):
+        if mod is None:
+            continue
+        core_fn = getattr(mod, "ms_deform_attn_core_pytorch", None) or getattr(
+            mod, "multi_scale_deform_attn_core_pytorch", None
+        )
+        if core_fn is None:
             continue
         if getattr(mod, "_C", None) is None:
-            core_fn = mod.multi_scale_deform_attn_core_pytorch
-
             def _ms_deform_attn_forward(
                 value,
                 value_spatial_shapes,
@@ -277,6 +297,7 @@ class GroundingDINOModel:
 
         ensure_openworld_vendor_paths()
         _patch_transformers_legacy_compat()
+        _patch_groundingdino_deform_attn()
         try:
             import GroundingDINO.groundingdino.datasets.transforms as T
             from GroundingDINO.groundingdino.models import build_model
@@ -303,6 +324,7 @@ class GroundingDINOModel:
         args = SLConfig.fromfile(str(resolved_cfg))
         args.device = device
         model = build_model(args)
+        _patch_groundingdino_deform_attn()
         checkpoint = torch.load(str(resolved_ckpt), map_location="cpu")
         model.load_state_dict(clean_state_dict(checkpoint["model"]), strict=False)
         self.model = model.eval().to(device)
@@ -339,6 +361,7 @@ class GroundingDINOModel:
             clean_caption = clean_caption + "."
 
         with torch.no_grad():
+            _patch_groundingdino_deform_attn()
             outputs = self.model(img_tensor[None], captions=[clean_caption])
         logits = outputs["pred_logits"].cpu().sigmoid()[0]
         boxes = outputs["pred_boxes"].cpu()[0]
