@@ -10,7 +10,7 @@ CELLS = [
 import subprocess, sys, os, shutil, zipfile, json, base64, re
 from pathlib import Path
 # Dùng cùng tên qua các phiên để tìm lại kết quả trên Drive.
-RUN_NAME = "cocoa_embedded_sd15"
+RUN_NAME = "cocoa_openworld_amodal"
 EVALUATION_ONLY = False  # True nếu phiên này chỉ để đánh giá ảnh đã sinh.
 os.environ["MPLBACKEND"] = "Agg"
 def sh(*cmd, extra_env=None):
@@ -172,7 +172,7 @@ for role in configs:
 '''# 5. Chạy Baseline: SD1.5 Direct
 run_version("baseline")
 ''',
-'''# 6. Chạy proposed
+'''# 6. Chạy Proposed: Open-World Amodal (RAM++, CLIP, Grounded-SAM, InstaOrder, SD2)
 run_version("proposed")
 ''',
 '''# 7. Đánh giá, so sánh và lưu báo cáo
@@ -210,7 +210,8 @@ sh(PYTHON, "scripts/compare_versions.py", "--manifest", saved_manifest, "--outpu
 report = json.loads((output / "comparison.json").read_text(encoding="utf-8"))
 for role in roles:
     relevant = {k: v["mean"] for k, v in report["metrics"][role].items()
-                if k in ("CLIP_score", "SSIM", "LPIPS", "Feature_Similarity", "seam_mae", "color_hist_sim")}
+                if k in ("CLIP_score", "OpenCLIP_score", "DINO_similarity", "VGG_similarity",
+                         "Feature_Similarity", "SSIM", "PSNR", "LPIPS", "seam_mae", "color_hist_sim")}
     print(role, relevant, "critic:", report["critic"][role])
 if report["fid"]:
     print("FID:", report["fid"])
