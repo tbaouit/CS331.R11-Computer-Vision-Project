@@ -37,8 +37,60 @@ OPENWORLD_VENDOR_PATHS = (
 )
 
 
+DRIVE_CKPT_SEARCH_DIRS = (
+    Path("/content/drive/MyDrive/CS331/ckpt"),
+    Path("/content/drive/MyDrive/amodal_project/ckpt"),
+    Path("/content/drive/MyDrive/CS331"),
+    Path("/content/drive/MyDrive/amodal_project"),
+)
+
+
+def _try_resolve_from_drive(filename: str, local_target: Path) -> Optional[Path]:
+    """Search Google Drive checkpoint folders (including subfolders and .zip archives) when missing locally."""
+    import shutil
+    import zipfile
+
+    for drive_dir in DRIVE_CKPT_SEARCH_DIRS:
+        if not drive_dir.is_dir():
+            continue
+        direct = drive_dir / filename
+        if direct.is_file() and direct.stat().st_size > 1024:
+            return direct
+        # Check subfolders inside ckpt/ (up to 2 levels)
+        if drive_dir.name == "ckpt":
+            for sub in drive_dir.rglob(filename):
+                if sub.is_file() and sub.stat().st_size > 1024:
+                    return sub
+            # Special support for InstaOrder checkpoint uploaded under alternate name or inside a .zip
+            if "instaorder" in filename.lower():
+                for sub in drive_dir.rglob("*.pth.tar"):
+                    if sub.is_file() and sub.stat().st_size > 1024 * 1024:
+                        return sub
+                for sub in drive_dir.rglob("*.pth"):
+                    if "instaorder" in sub.name.lower() and sub.is_file() and sub.stat().st_size > 1024 * 1024:
+                        return sub
+                for zpath in drive_dir.rglob("*.zip"):
+                    try:
+                        with zipfile.ZipFile(zpath, "r") as zf:
+                            for member in zf.namelist():
+                                if member.endswith(".pth.tar") or (
+                                    "instaorder" in member.lower() and member.endswith(".pth")
+                                ):
+                                    local_target.parent.mkdir(parents=True, exist_ok=True)
+                                    with zf.open(member) as src, open(local_target, "wb") as dst:
+                                        shutil.copyfileobj(src, dst)
+                                    print(
+                                        f"[Weights] Extracted {member} from {zpath} -> {local_target}",
+                                        flush=True,
+                                    )
+                                    return local_target
+                    except Exception as exc:
+                        print(f"[Weights] Warning inspecting {zpath}: {exc}", flush=True)
+    return None
+
+
 def resolve_project_path(path_value: str | Path) -> Path:
-    """Resolve a relative config path against project ROOT without hardcoding absolute paths."""
+    """Resolve a relative config path against project ROOT and Google Drive checkpoint directories."""
     path = Path(path_value)
     if path.is_absolute():
         return path
@@ -53,6 +105,9 @@ def resolve_project_path(path_value: str | Path) -> Path:
     for alt in alt_candidates:
         if alt.exists():
             return alt
+    drive_match = _try_resolve_from_drive(path.name, ROOT / "ckpt" / path.name)
+    if drive_match is not None:
+        return drive_match
     return candidate
 
 
@@ -468,8 +523,17 @@ class InstaOrderModel:
         self._infer = None
         resolved_ckpt = resolve_project_path(ckpt_path)
         if not resolved_ckpt.is_file():
+            existing_drive_files: list[str] = []
+            for d in DRIVE_CKPT_SEARCH_DIRS:
+                if d.is_dir() and d.name == "ckpt":
+                    existing_drive_files.extend(str(p.relative_to(d)) for p in d.rglob("*") if p.is_file())
+            hint = (
+                f" (files currently in Drive ckpt/: {existing_drive_files})"
+                if existing_drive_files
+                else " (Drive ckpt/ folder is empty or not mounted)"
+            )
             print(
-                f"[InstaOrder] Checkpoint {resolved_ckpt.name} not found; using geometric boundary-overlap "
+                f"[InstaOrder] Checkpoint {resolved_ckpt.name} not found{hint}; using geometric boundary-overlap "
                 "occlusion analysis fallback.",
                 flush=True,
             )

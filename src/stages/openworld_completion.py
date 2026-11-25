@@ -485,10 +485,11 @@ def run_progressive_iteration(
     if query_obj.iter_id == 0:
         occluder_masks = models.instaorder.analyze_masks(img, masks, mask_id)
         occ_mask = aggregate_occluders(query_mask, occluder_masks)
-        # Fallback if InstaOrder missed the occluder on iteration 0 so every COCO-A target is completed
-        if not np.any(occ_mask) and fallback_occluded_mask is not None and np.any(fallback_occluded_mask):
-            occ_mask = (np.asarray(fallback_occluded_mask) > 0).astype(np.uint8)
-            occ_mask[query_mask > 0] = 0
+        # Union with dataset occluded mask on iteration 0 so SD2 always inpaints the full occluded region
+        if fallback_occluded_mask is not None and np.any(fallback_occluded_mask):
+            gt_occ = (np.asarray(fallback_occluded_mask) > 0).astype(np.uint8)
+            gt_occ[query_mask > 0] = 0
+            occ_mask = np.maximum(occ_mask, gt_occ)
         sides_touched = check_touch_boundary(query_mask)
         if not np.any(occ_mask) and len(sides_touched) == 0:
             query_obj.run_iter = False

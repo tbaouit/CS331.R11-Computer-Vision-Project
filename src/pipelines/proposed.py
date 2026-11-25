@@ -218,9 +218,15 @@ class Proposed:
             completed_full_rgb = image.copy()
             predicted_amodal = vis.copy()
 
-        # Preserve exact visible pixels inside eroded interior while keeping smooth transition
-        completed_full_rgb[vis] = image[vis]
+        # Preserve exact visible pixels inside the eroded interior while keeping the smooth alpha-blended boundary
+        from src.stages.openworld_completion import _erode_box
+
+        vis_interior = _erode_box(vis.astype(np.uint8), 7, iterations=1) > 0
+        if not np.any(vis_interior):
+            vis_interior = vis
+        completed_full_rgb[vis_interior] = image[vis_interior]
         amodal_out = (vis | occ_gt) if occ_gt is not None else predicted_amodal
+        completed_full_rgb[~amodal_out] = 255
         missing_out = amodal_out & ~vis
         rgba = finalize_rgba(completed_full_rgb, amodal_out, h, w)
 

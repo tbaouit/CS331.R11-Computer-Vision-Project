@@ -46,7 +46,17 @@ class FoundationModels:
 
     def release_gpu(self):
         if self._active is not None:
-            self._models[self._active].to("cpu")
+            try:
+                from diffusers.utils import logging as diffusers_logging
+
+                prev_verbosity = diffusers_logging.get_verbosity()
+                diffusers_logging.set_verbosity_error()
+                try:
+                    self._models[self._active].to("cpu")
+                finally:
+                    diffusers_logging.set_verbosity(prev_verbosity)
+            except Exception:
+                self._models[self._active].to("cpu")
             self._active = None
             self._clear_cache()
 

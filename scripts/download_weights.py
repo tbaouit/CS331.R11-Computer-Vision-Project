@@ -23,12 +23,41 @@ INSTAORDER_GDRIVE_ID = os.environ.get("INSTAORDER_GDRIVE_ID", "1O_ab_bcA1_InstaO
 
 
 def _copy_from_drive_if_present(filename: str, target: Path) -> bool:
+    import zipfile
+
     for folder in DRIVE_CKPT_CANDIDATES:
+        if not folder.is_dir():
+            continue
         candidate = folder / filename
         if candidate.is_file() and candidate.stat().st_size > 1024 * 1024:
             print(f"[Weights] Copying {filename} from Google Drive ({candidate})...", flush=True)
             shutil.copy2(candidate, target)
             return True
+        if folder.name == "ckpt":
+            for sub in folder.rglob(filename):
+                if sub.is_file() and sub.stat().st_size > 1024 * 1024:
+                    print(f"[Weights] Copying {filename} from Google Drive ({sub})...", flush=True)
+                    shutil.copy2(sub, target)
+                    return True
+            if "instaorder" in filename.lower():
+                for sub in folder.rglob("*.pth.tar"):
+                    if sub.is_file() and sub.stat().st_size > 1024 * 1024:
+                        print(f"[Weights] Copying InstaOrder checkpoint from Google Drive ({sub})...", flush=True)
+                        shutil.copy2(sub, target)
+                        return True
+                for zpath in folder.rglob("*.zip"):
+                    try:
+                        with zipfile.ZipFile(zpath, "r") as zf:
+                            for member in zf.namelist():
+                                if member.endswith(".pth.tar") or (
+                                    "instaorder" in member.lower() and member.endswith(".pth")
+                                ):
+                                    print(f"[Weights] Extracting {member} from {zpath} -> {target}...", flush=True)
+                                    with zf.open(member) as src, open(target, "wb") as dst:
+                                        shutil.copyfileobj(src, dst)
+                                    return True
+                    except Exception as exc:
+                        print(f"[Weights] Warning inspecting {zpath}: {exc}", flush=True)
     return False
 
 
