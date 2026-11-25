@@ -19,6 +19,11 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
+# Restore NumPy 1.20 legacy type aliases used by vendor/InstaOrder (inference.py / utils/data_utils.py)
+for _np_alias, _py_type in (("int", int), ("float", float)):
+    if _np_alias not in np.__dict__:
+        setattr(np, _np_alias, _py_type)
+
 ROOT = Path(__file__).resolve().parents[2]
 SD2_INPAINTING = "stabilityai/stable-diffusion-2-inpainting"
 SD2_COMMUNITY_INPAINTING = "sd2-community/stable-diffusion-2-inpainting"
@@ -557,8 +562,53 @@ class InstaOrderModel:
             "overlap_weight": 0.1,
             "distinct_weight": 0.9,
         }
+        import torch
+
         self.model = insta_models.__dict__["InstaOrderNet_od"](params)
-        self.model.load_state(str(resolved_ckpt))
+        raw_ckpt = torch.load(str(resolved_ckpt), map_location="cpu", weights_only=False)
+        state_dict = raw_ckpt
+        if isinstance(raw_ckpt, dict):
+            for key in ("state_dict", "model", "model_state_dict", "net"):
+                if key in raw_ckpt and isinstance(raw_ckpt[key], dict):
+                    state_dict = raw_ckpt[key]
+                    break
+        target_net = getattr(self.model, "model", None)
+        if isinstance(target_net, torch.nn.Module) and isinstance(state_dict, dict):
+            own_state = target_net.state_dict()
+            remapped: dict[str, torch.Tensor] = {}
+            for k, v in state_dict.items():
+                if not hasattr(v, "shape"):
+                    continue
+                clean_k = str(k)
+                changed = True
+                while changed:
+                    changed = False
+                    for prefix in ("model.", "module.", "backbone.", "net."):
+                        if clean_k.startswith(prefix):
+                            clean_k = clean_k[len(prefix) :]
+                            changed = True
+                for candidate_k in (str(k), clean_k, f"module.{clean_k}"):
+                    if candidate_k in own_state and own_state[candidate_k].shape == v.shape:
+                        remapped[candidate_k] = v
+                        break
+            if len(remapped) >= max(1, int(0.8 * len(own_state))):
+                target_net.load_state_dict(remapped, strict=False)
+                print(
+                    f"[InstaOrder] Loaded {len(remapped)}/{len(own_state)} weights from {resolved_ckpt.name}.",
+                    flush=True,
+                )
+            else:
+                sample_keys = list(state_dict.keys())[:5]
+                print(
+                    f"[InstaOrder] Checkpoint {resolved_ckpt.name} matched {len(remapped)}/{len(own_state)} "
+                    f"InstaOrderNet_od tensors (sample keys: {sample_keys}); using geometric occlusion fallback.",
+                    flush=True,
+                )
+                self.model = None
+                self._infer = None
+                return
+        else:
+            self.model.load_state(str(resolved_ckpt))
         self.model.switch_to("eval")
         self.to(device)
 
