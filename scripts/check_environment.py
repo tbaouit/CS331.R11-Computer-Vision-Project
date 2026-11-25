@@ -49,12 +49,19 @@ def main():
     ]:
         importlib.import_module(name)
         print("Import OK:", name)
-    for opt_name in ["clip", "ram", "models"]:
+    for opt_name in ["clip", "ram"]:
         try:
             importlib.import_module(opt_name)
             print("Vendor import OK:", opt_name)
         except ImportError as exc:
             print(f"Vendor import notice ({opt_name}): {exc}")
+    try:
+        from src.models.openworld_models import _import_instaorder_modules
+
+        _import_instaorder_modules()
+        print("Vendor import OK: InstaOrder (models, inference)")
+    except Exception as exc:
+        print(f"Vendor import notice (InstaOrder): {exc}")
 
     if args.check_access:
         from huggingface_hub import hf_hub_download

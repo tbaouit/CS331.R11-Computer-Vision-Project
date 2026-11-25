@@ -34,7 +34,7 @@ class GenerationTests(unittest.TestCase):
         cfg = baseline_config()
         validate_baseline_config(cfg)
         self.assertTrue(_uses_occluded_mask_input(cfg))
-        self.assertEqual(cfg["inpainting_model_id"], "stabilityai/stable-diffusion-2-inpainting")
+        self.assertEqual(cfg["inpainting_model_id"], "sd2-community/stable-diffusion-2-inpainting")
         self.assertEqual(cfg["text_query_policy"], "dataset_object_name")
         self.assertEqual(
             build_baseline_prompt("teddy bear"),

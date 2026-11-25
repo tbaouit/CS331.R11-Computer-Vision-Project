@@ -96,7 +96,7 @@ def main():
         "scheduler/*",
         "feature_extractor/*",
     ]
-    repo = "stabilityai/stable-diffusion-2-inpainting"
+    repo = "sd2-community/stable-diffusion-2-inpainting"
     print(f"[Weights] Caching shared HuggingFace pipeline {repo} ...", flush=True)
     try:
         snapshot_download(repo, allow_patterns=sd_includes, ignore_patterns=sd_ignores, max_workers=2)

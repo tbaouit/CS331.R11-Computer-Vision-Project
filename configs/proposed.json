@@ -2,7 +2,7 @@
   "seed": 42,
   "pipeline_mode": "proposed",
   "use_occluded_mask_input": true,
-  "inpainting_model_id": "stabilityai/stable-diffusion-2-inpainting",
+  "inpainting_model_id": "sd2-community/stable-diffusion-2-inpainting",
   "clip_model_id": "ViT-B/32",
   "device": "cuda",
   "text_query_policy": "dataset_object_name",

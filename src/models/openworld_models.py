@@ -353,6 +353,24 @@ class SAMViTHModel:
             self.predictor.reset_image()
 
 
+def _import_instaorder_modules():
+    """Import InstaOrder's `models` and `inference` without colliding with another vendor's `utils.py`."""
+    ensure_openworld_vendor_paths()
+    insta_dir = next((p for p in (ROOT / "vendor" / "InstaOrder", ROOT / "InstaOrder") if p.is_dir()), None)
+    if insta_dir is not None:
+        insta_str = str(insta_dir)
+        if insta_str in sys.path:
+            sys.path.remove(insta_str)
+        sys.path.insert(0, insta_str)
+    existing_utils = sys.modules.get("utils")
+    if existing_utils is not None and not hasattr(existing_utils, "__path__"):
+        sys.modules.pop("utils", None)
+    import inference as insta_infer
+    import models as insta_models
+
+    return insta_models, insta_infer
+
+
 class InstaOrderModel:
     """InstaOrder (`InstaOrderNet_od`, ResNet-50) occlusion ordering wrapper with CPU/GPU offload."""
 
@@ -361,9 +379,7 @@ class InstaOrderModel:
         ckpt_path: str | Path = "ckpt/InstaOrder_InstaOrderNet_od.pth.tar",
         device: str = "cpu",
     ):
-        ensure_openworld_vendor_paths()
-        import inference as insta_infer
-        import models as insta_models
+        insta_models, insta_infer = _import_instaorder_modules()
 
         resolved_ckpt = resolve_project_path(ckpt_path)
         if not resolved_ckpt.is_file():
