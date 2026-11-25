@@ -177,7 +177,7 @@ def run_one(record, sample_root, output_root, config, backend, profile):
             seconds=round(time.perf_counter() - started, 3),
             final_score=output.get("final_score"),
             critic_accepted=output.get("critic_accepted", (
-                output.get("final_score") is not None and output["final_score"] >= config["critique_threshold"]
+                output.get("final_score") is not None and output["final_score"] >= config.get("critique_threshold", 7)
             )),
             critique_history=history,
             trace=trace,

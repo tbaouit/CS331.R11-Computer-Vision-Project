@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-# Kiểm tra CUDA trước, sau đó import model vendor và xác minh trọng số cần thiết.
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--imports-only", action="store_true")
@@ -26,41 +25,45 @@ def main():
 
     if not hasattr(Image, "ANTIALIAS"):
         Image.ANTIALIAS = Image.Resampling.LANCZOS
-    for extra in ["vendor/taming-transformers", "vendor/CLIP", "pix2gestalt", "pix2gestalt/pix2gestalt"]:
-        sys.path.insert(0, str(ROOT / extra))
+    for extra in [
+        "vendor/InstaOrder",
+        "vendor/Grounded-Segment-Anything",
+        "vendor/Grounded-Segment-Anything/GroundingDINO",
+        "vendor/recognize-anything",
+        "vendor/CLIP",
+    ]:
+        path = ROOT / extra
+        if path.exists():
+            sys.path.insert(0, str(path))
     for name in [
         "diffusers",
         "transformers",
-        "qwen_vl_utils",
-        "clip",
-        "carvekit.api.high",
-        "ldm.models.diffusion.ddpm",
-        "inference",
+        "segment_anything",
         "pycocotools",
         "lpips",
         "skimage",
+        "open_clip",
+        "src.models.openworld_models",
         "src.models.memory_manager",
         "src.pipelines.backend",
     ]:
         importlib.import_module(name)
         print("Import OK:", name)
-    from transformers import Qwen3VLForConditionalGeneration
+    for opt_name in ["clip", "ram", "models"]:
+        try:
+            importlib.import_module(opt_name)
+            print("Vendor import OK:", opt_name)
+        except ImportError as exc:
+            print(f"Vendor import notice ({opt_name}): {exc}")
 
-    print("Qwen3-VL class available:", Qwen3VLForConditionalGeneration.__name__)
-    if not args.imports_only:
-        checkpoint = ROOT / "ckpt/epoch=000005.ckpt"
-        if not checkpoint.is_file() or checkpoint.stat().st_size < 1024**3:
-            raise RuntimeError("Missing/incomplete Pix2Gestalt checkpoint")
     if args.check_access:
         from huggingface_hub import hf_hub_download
 
-        cfg = json.loads((ROOT / "configs/proposed.json").read_text(encoding="utf-8"))
-        for model, name in [
-            ("Qwen/Qwen3-VL-4B-Instruct", "config.json"),
-            (cfg["inpainting_model_id"], "model_index.json"),
-        ]:
-            hf_hub_download(model, filename=name)
-            print("Model access OK:", model)
+        for cfg_name in ("configs/baseline.json", "configs/proposed.json"):
+            cfg = json.loads((ROOT / cfg_name).read_text(encoding="utf-8"))
+            model_id = cfg["inpainting_model_id"]
+            hf_hub_download(model_id, filename="model_index.json")
+            print("Model access OK:", model_id)
     print("Preflight complete.")
 
 

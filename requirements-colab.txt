@@ -1,25 +1,29 @@
 # Python 3.12; torch 2.10.0 / torchvision 0.25.0 installed separately from CUDA 12.8 index.
-# Core generation versions follow the author; legacy dependencies are compatibility pins.
+# Dependencies for Baseline (SD1.5 Direct), Proposed (Open-World Amodal: RAM++, CLIP, Grounded-SAM, InstaOrder, SD2),
+# and Unified Evaluation (DINO, VGG, OpenCLIP, CLIP, LPIPS, SSIM, PSNR, FID).
 numpy==1.26.4
 Pillow==11.3.0
 opencv-python==4.10.0.84
 diffusers==0.37.1
-# V2 uses this version's inpaint IP-Adapter loader and callback_on_step_end API.
-# Do not downgrade to 0.27.x; transformers 5.0.0 is retained for Qwen3-VL.
 transformers==5.0.0
 accelerate==1.13.0
-qwen_vl_utils==0.0.10
 safetensors==0.7.0
 omegaconf==2.3.0
-pytorch-lightning==1.9.5
-torchmetrics==0.11.4
-kornia==0.6.12
-carvekit-colab==4.1.0
+timm==1.0.15
+fairscale==0.4.13
+supervision==0.25.1
+addict==2.4.0
+yapf==0.43.0
+PyYAML==6.0.2
+easydict==1.13
+gdown==5.2.0
+open_clip_torch==2.32.0
 einops==0.8.2
 segment-anything==1.0
 pycocotools==2.0.11
 scipy==1.14.1
 scikit-image==0.24.0
+scikit-learn==1.6.1
 lpips==0.1.4
 pandas==2.2.3
 matplotlib==3.9.2
@@ -30,7 +34,5 @@ regex
 sentencepiece
 tqdm
 requests
-webdataset==1.0.2
-lovely-numpy==0.2.22
-lovely-tensors==0.1.22
+tabulate
 pytorch-fid==0.3.0

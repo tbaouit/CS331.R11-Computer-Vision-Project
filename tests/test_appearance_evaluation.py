@@ -31,17 +31,34 @@ class AppearanceEvaluationTests(unittest.TestCase):
     def test_author_protocol_masks_both_images_but_clip_sees_full_output(self):
         image, visible, output = self.arrays()
         with patch.object(metrics, "clip_score", return_value=24) as clip, \
+             patch.object(metrics, "openclip_score", return_value=0.35) as oclip, \
              patch.object(metrics, "lpips_distance", return_value=0) as lpips, \
              patch.object(metrics, "clip_feature_similarity", return_value=1) as feature, \
+             patch.object(metrics, "vgg_feature_similarity", return_value=1) as vgg, \
+             patch.object(metrics, "dino_similarity", return_value=1) as dino, \
              patch.object(metrics, "ssim_score", return_value=1) as ssim:
             result = metrics.compute_visible_appearance_metrics(image, output, visible, "teddy bear")
         np.testing.assert_array_equal(clip.call_args.args[0], output)
+        np.testing.assert_array_equal(oclip.call_args.args[0], output)
         self.assertEqual(clip.call_args.args[1:], ("teddy bear", "cpu"))
-        for call in (lpips.call_args, feature.call_args, ssim.call_args):
+        self.assertEqual(oclip.call_args.args[1:], ("teddy bear", "cpu"))
+        for call in (lpips.call_args, feature.call_args, vgg.call_args, dino.call_args, ssim.call_args):
             a, b = call.args[:2]
             np.testing.assert_array_equal(a, b)
             self.assertFalse(a[~visible].any())
-        self.assertEqual(result, dict(CLIP_score=24, LPIPS=0, Feature_Similarity=1, SSIM=1, PSNR=100))
+        self.assertEqual(
+            result,
+            dict(
+                CLIP_score=24,
+                OpenCLIP_score=0.35,
+                LPIPS=0,
+                Feature_Similarity=1,
+                VGG_similarity=1,
+                DINO_similarity=1,
+                SSIM=1,
+                PSNR=100,
+            ),
+        )
 
     def test_psnr_uses_full_masked_canvas_like_author(self):
         a = np.zeros((40, 40, 3), np.uint8)

@@ -44,21 +44,25 @@ class ModelMemoryTests(unittest.TestCase):
     def test_lazy_load_and_critic_loop_never_overlap_gpu_models(self):
         registry, events, resident, loads = self.make_registry()
         self.assertEqual(loads, [])
-        # Both pipelines follow this order, including returning to Qwen as critic.
+        # Open-World Amodal stages + legacy stages all offload previous stage before activating next.
+        sam_first = registry.sam
+        self.assertIs(registry.sam, sam_first)
+        registry.ram_plus
+        registry.openai_clip
+        registry.gdino
+        self.assertIs(registry.sam, sam_first)  # SAM ViT-H is reused across iterations, never reloaded!
+        registry.instaorder
+        registry.pipe
         first = registry.shape_predictor
         self.assertIs(registry.shape_predictor, first)
         registry.vlm
         registry.clip_model
         registry.pipe
-        registry.vlm
-        registry.pipe
-        registry.vlm
-        self.assertIs(registry.shape_predictor, first)  # next sample reuses weights
         registry.release_gpu()
-        self.assertEqual(loads, ["shape", "vlm", "clip", "inpainting"])
+        self.assertEqual(loads, ["sam", "ram_plus", "openai_clip", "gdino", "instaorder", "inpainting", "shape", "vlm", "clip"])
         self.assertFalse(resident)
         self.assertIsNone(registry._active)
-        self.assertEqual(events[:3], [("shape", "cuda"), ("shape", "cpu"), ("vlm", "cuda")])
+        self.assertEqual(events[:3], [("sam", "cuda"), ("sam", "cpu"), ("ram_plus", "cuda")])
 
     def test_failed_activation_returns_partially_moved_model_to_cpu(self):
         registry, events, resident, _ = self.make_registry(fail="vlm")
@@ -110,6 +114,7 @@ class ModelMemoryTests(unittest.TestCase):
                     registry, _, resident, _ = self.make_registry()
                     backend = AmodalBackend.__new__(AmodalBackend)
                     backend.models = registry
+                    backend.mode = "baseline" if mode == "sd15_direct" else "proposed"
                     backend.config, backend.job = {}, None
                     def complete(**kwargs):
                         registry.vlm

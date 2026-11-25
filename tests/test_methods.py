@@ -15,7 +15,7 @@ from scripts.build_notebook import CELLS
 from scripts.compare_versions import compare_versions, check_configs
 from scripts.evaluate_runs import evaluate_profile
 from src.evaluation.runner import run_one
-from src.models.sd15_ip_adapter import validate_proposed_config
+from src.models.openworld_models import validate_openworld_proposed_config
 from src.pipelines.backend import AmodalBackend
 from src.pipelines.baseline import Baseline
 from src.pipelines.proposed import Proposed
@@ -35,13 +35,13 @@ class VersionTests(unittest.TestCase):
         cuda = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True))
         for role, cls in (("baseline", Baseline), ("proposed", Proposed)):
             if role != "baseline":
-                validate_proposed_config(cfgs[role])
+                validate_openworld_proposed_config(cfgs[role])
             def new_models(**kwargs):
                 return SimpleNamespace(device=kwargs["device"])
-            with patch.dict("sys.modules", {"torch": cuda}),                  patch("src.pipelines.backend.FoundationModels", side_effect=new_models):
+            with patch.dict("sys.modules", {"torch": cuda}), patch("src.pipelines.backend.FoundationModels", side_effect=new_models):
                 backend = AmodalBackend(cfgs[role])
                 self.assertIs(type(backend.completer), cls)
-        cfgs["proposed"]["use_ip_adapter"] = False
+        cfgs["proposed"]["inpainting_model_id"] = "invalid-model"
         with self.assertRaises(ValueError):
             check_configs(cfgs)
 

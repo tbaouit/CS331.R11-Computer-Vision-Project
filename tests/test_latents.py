@@ -32,8 +32,25 @@ class LatentCallbackTests(unittest.TestCase):
             text_encoder=None, tokenizer=None, safety_checker=None, feature_extractor=None,
             requires_safety_checker=False).to("cpu")
         pipe.set_progress_bar_config(disable=True)
-        cfg = json.loads((Path(__file__).resolve().parents[1] / "configs/proposed.json").read_text())
-        cfg["use_ip_adapter"] = False  # no checkpoint download in a unit test
+        cfg = dict(
+            seed=42,
+            pipeline_mode="proposed",
+            inpainting_model_id="stable-diffusion-v1-5/stable-diffusion-inpainting",
+            use_micro_attributes=True,
+            use_ip_adapter=False,
+            use_latent_blending=True,
+            use_strict_critic=True,
+            enable_critic=True,
+            max_critic_iter=3,
+            refinement_scheduler="ddim",
+            critique_threshold=7,
+            ip_adapter_scale=0.5,
+            guidance_scale=6.0,
+            retry_guidance_step=0.5,
+            num_inference_steps=28,
+            ip_adapter_model_id="h94/IP-Adapter",
+            ip_adapter_weight_name="ip-adapter-plus_sd15.safetensors",
+        )
         configure_proposed_pipe(pipe, cfg)
         canvas = Image.new("RGB", (32, 32), (120, 90, 60))
         mask = np.zeros((32, 32), np.uint8)
