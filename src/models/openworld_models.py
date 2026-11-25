@@ -63,6 +63,30 @@ def ensure_openworld_vendor_paths() -> None:
             sys.path.insert(0, str(path))
 
 
+def _patch_transformers_legacy_compat() -> None:
+    """Restore helpers removed in transformers 5.x that `RAM++` and `GroundingDINO` import from `modeling_utils`."""
+    try:
+        import transformers.modeling_utils as mu
+        import transformers.pytorch_utils as pu
+    except Exception:
+        return
+    for attr in ("apply_chunking_to_forward", "find_pruneable_heads_and_indices", "prune_linear_layer"):
+        if not hasattr(mu, attr) and hasattr(pu, attr):
+            setattr(mu, attr, getattr(pu, attr))
+    if not hasattr(mu, "apply_chunking_to_forward"):
+        import torch
+
+        def _apply_chunking_to_forward(forward_fn, chunk_size: int, chunk_dim: int, *input_tensors):
+            if chunk_size > 0:
+                num_chunks = input_tensors[0].shape[chunk_dim] // chunk_size
+                input_tensors_chunks = tuple(t.chunk(num_chunks, dim=chunk_dim) for t in input_tensors)
+                output_chunks = tuple(forward_fn(*chunks) for chunks in zip(*input_tensors_chunks))
+                return torch.cat(output_chunks, dim=chunk_dim)
+            return forward_fn(*input_tensors)
+
+        setattr(mu, "apply_chunking_to_forward", _apply_chunking_to_forward)
+
+
 def validate_openworld_proposed_config(config: dict) -> None:
     """Validate that `configs/proposed.json` configures the Open-World Amodal SD2 pipeline."""
     if config.get("pipeline_mode") != "proposed":
@@ -100,6 +124,7 @@ class RAMPlusModel:
         import torch
 
         ensure_openworld_vendor_paths()
+        _patch_transformers_legacy_compat()
         from ram import get_transform
         from ram.models import ram_plus
 
@@ -217,6 +242,7 @@ class GroundingDINOModel:
         import torch
 
         ensure_openworld_vendor_paths()
+        _patch_transformers_legacy_compat()
         try:
             import GroundingDINO.groundingdino.datasets.transforms as T
             from GroundingDINO.groundingdino.models import build_model
