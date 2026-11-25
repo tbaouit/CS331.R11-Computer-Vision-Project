@@ -10,7 +10,7 @@ CELLS = [
 import subprocess, sys, os, shutil, zipfile, json, base64, re
 from pathlib import Path
 # Dùng cùng tên qua các phiên để tìm lại kết quả trên Drive.
-RUN_NAME = "sd15_decoded"
+RUN_NAME = "cocoa_named_sd15"
 EVALUATION_ONLY = False  # True nếu phiên này chỉ để đánh giá ảnh đã sinh.
 os.environ["MPLBACKEND"] = "Agg"
 def sh(*cmd, extra_env=None):
@@ -90,30 +90,26 @@ sh("git", "log", "-n", "1", "--oneline")
 
 if EVALUATION_ONLY:
     print("Chỉ đánh giá: không cần giải nén COCO-A")
-elif not (PROJECT / "dataset/cocoa/dataset.json").is_file():
-    candidates = [
-        DRIVE / "cocoa_dataset.zip",
-        DRIVE / "data/cocoa_dataset.zip",
-        Path("/content/drive/MyDrive/CS331/cocoa_dataset.zip"),
-        Path("/content/drive/MyDrive/amodal_project/cocoa_dataset.zip"),
-    ]
-    source = next((p for p in candidates if p.is_file()), None)
-    if source is None:
-        raise FileNotFoundError(f"Upload cocoa_dataset.zip vào {DRIVE}")
-    local_zip = Path("/content/cocoa_dataset.zip")
-    print(f"Copying {source} -> {local_zip} ...", flush=True)
-    shutil.copy2(source, local_zip)
-    destination = PROJECT / "dataset"
-    destination.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(local_zip) as bundle:
-        for item in bundle.infolist():
-            if not (destination / item.filename).resolve().is_relative_to(destination.resolve()):
-                raise ValueError("Unsafe archive path")
-        bundle.extractall(destination)
-    local_zip.unlink()
-    print("Dataset extracted to", destination / "cocoa", flush=True)
 else:
-    print("Dataset already extracted at", PROJECT / "dataset/cocoa", "(skipped)", flush=True)
+    import hashlib
+    if str(PROJECT) not in sys.path:
+        sys.path.insert(0, str(PROJECT))
+    from scripts.mount_cocoa_zip import unpack
+    from scripts.merge_cocoa_annotations import merge
+    archive = DRIVE / "cocoa.zip"
+    dataset_root = unpack(archive, PROJECT / "dataset/named_cache")
+    annotation_file = DRIVE / "cocoa_annotations.json"
+    if not annotation_file.is_file():
+        annotation_file = dataset_root.parent / (dataset_root.name + ".json")
+        if not annotation_file.is_file():
+            save_json(annotation_file, merge(archive))
+    data_key = dict(zip_sha256=dataset_root.name,
+                    annotation_sha256=hashlib.sha256(annotation_file.read_bytes()).hexdigest())
+    data_lock = EXPERIMENT / "dataset_identity.json"
+    if data_lock.is_file() and json.loads(data_lock.read_text()) != data_key:
+        raise ValueError("Dữ liệu đã thay đổi. Dùng RUN_NAME mới để bắt đầu đợt chạy mới.")
+    save_json(data_lock, data_key)
+    print("Dataset:", dataset_root, "Annotations:", annotation_file)
 
 print("Free GiB:", round(shutil.disk_usage(PROJECT).free / 1024**3, 1))
 ''',
@@ -127,41 +123,31 @@ else:
     sh(PYTHON, "-m", "unittest", "discover", "-s", "tests", "-v")
 ''',
 '''# 4. Chuẩn bị cùng tập mẫu cho mọi phiên bản
-BATCH = "dev50"  # Switch to "test400" only after selecting the final settings.
-FINAL_TEST = False
-SMOKE_LIMIT = None  # Optional: use 3 for a first check on dev50.
-sizes = {"dev50": 50, "test400": 400}
-if BATCH not in sizes:
-    raise ValueError("BATCH must be dev50 or test400")
-if BATCH == "test400" and (not FINAL_TEST or SMOKE_LIMIT is not None):
-    raise ValueError("test400 requires FINAL_TEST=True and no smoke limit")
-N = sizes[BATCH] if SMOKE_LIMIT is None else SMOKE_LIMIT
-if type(N) is not int or not 1 <= N <= sizes[BATCH]:
-    raise ValueError("Invalid smoke limit")
-extra = ["--allow-test"] if BATCH == "test400" else []
-DATA_RUN = EXPERIMENT / f"{BATCH}_{N}"
+BATCH = "full"  # Chọn 10, 50 hoặc "full".
+BATCH = str(BATCH)
+if BATCH not in ("10", "50", "full"):
+    raise ValueError("BATCH phải là 10, 50 hoặc full")
+extra = ["--allow-test"]  # Inference on the named subset across all original splits.
+DATA_RUN = EXPERIMENT / ("batch_" + BATCH)
 RUNS_ROOT = DATA_RUN / "runs"
 saved_manifest = DATA_RUN / "manifest.json"
 configs = ("baseline", "proposed")
 
 if EVALUATION_ONLY:
     manifest = saved_manifest
-    if not manifest.is_file():
-        raise FileNotFoundError(f"Không tìm thấy manifest trên Drive: {manifest}")
     records = json.loads(manifest.read_text(encoding="utf-8"))
-    if len(records) != N or any(r["split"] != BATCH.rstrip("0123456789") for r in records):
-        raise ValueError("Manifest trên Drive không khớp batch đã chọn")
+    N = len(records)
+    if not N or (BATCH != "full" and N != int(BATCH)):
+        raise ValueError("Manifest trên Drive không khớp batch")
 else:
-    manifest = PROJECT / "outputs" / BATCH / "manifest.json"
-    if not manifest.is_file():
-        sh(PYTHON, "scripts/prepare_data.py", "--config", f"configs/data_{BATCH}.json", *extra)
+    local_batch = PROJECT / "outputs/named" / dataset_root.name / data_key["annotation_sha256"] / BATCH
+    manifest = local_batch / "manifest.json"
+    if not manifest.exists():
+        sh(PYTHON, "scripts/prepare_named_batch.py", "--dataset", dataset_root,
+           "--annotations", annotation_file, "--batch", BATCH, "--output", local_batch)
     records = json.loads(manifest.read_text(encoding="utf-8"))
-    if len(records) != sizes[BATCH] or any(r["split"] != BATCH.rstrip("0123456789") for r in records):
-        raise ValueError("Manifest không khớp split hoặc kích thước đã chọn")
-    records = records[:N]
-    if N < sizes[BATCH]:
-        manifest = manifest.with_name(f"first_{N}.json")
-        save_json(manifest, records)
+    N = len(records)
+    save_json(DATA_RUN / "selection_report.json", json.loads((local_batch / "selection_report.json").read_text()))
     sh(PYTHON, "scripts/run_experiment.py", "--manifest", manifest, "--limit", N,
        "--config", "configs/baseline.json", "--validate-only", *extra)
     if saved_manifest.is_file():
@@ -181,7 +167,7 @@ def run_version(role):
        "--config", config, "--runs-root", RUNS_ROOT / role,
        "--profile-state", marker(role), *extra)
 
-print("Batch trên Drive:", DATA_RUN)
+print("Số vật thể:", N, "| Batch trên Drive:", DATA_RUN)
 for role in configs:
     state = json.loads(marker(role).read_text(encoding="utf-8")) if marker(role).is_file() else {}
     print(role, state.get("status", "chưa chạy"), state.get("profile", ""))
@@ -195,7 +181,7 @@ run_version("proposed")
 '''# 7. Đánh giá, so sánh và lưu báo cáo
 from PIL import Image
 from IPython.display import display
-FID_REFERENCE = None  # For test400, set to a Drive folder of >=400 clean object crops.
+FID_REFERENCE = None  # For at least 400 selected objects, set to a Drive folder of >=400 clean object crops.
 import hashlib
 roles = configs
 profiles, pending = {}, []

@@ -34,7 +34,7 @@ class DriveSessionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, contextlib.redirect_stdout(io.StringIO()):
             root = Path(temp)
             experiment = root / "Drive" / "sd15"
-            batch = experiment / "dev50_50"
+            batch = experiment / "batch_full"
             records = [{"sample_id": f"dev_{n:03}", "split": "dev"} for n in range(50)]
             runs = batch / "runs"
             runs.mkdir(parents=True)

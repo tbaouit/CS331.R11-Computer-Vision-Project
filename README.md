@@ -7,7 +7,7 @@ Hai phương pháp nhận ảnh RGB, mask nhìn thấy và mask vùng khuất. C
 | baseline | `configs/baseline.json` | Một lượt DDIM với prompt cố định và vùng khuất tô xám |
 | proposed | `configs/proposed.json` | Prior RGB, prompt Qwen, IP-Adapter Plus, latent blending và vòng phản hồi strict critic |
 
-Mở [notebook Colab](notebooks/Amodal_Completion_Colab.ipynb), chạy ô 1–4 để chuẩn bị dev50 hoặc test400. Ô 5 sinh baseline, ô 6 sinh proposed và ô 7 chấm rồi so sánh hai phương pháp. Mỗi phiên sinh có thể tiếp tục từ Drive.
+Mở [notebook Colab](notebooks/Amodal_Completion_Colab.ipynb), chạy ô 1–4 để chuẩn bị 10, 50 hoặc toàn bộ vật thể hợp lệ từ `cocoa.zip`. Ô 5 sinh baseline, ô 6 sinh proposed và ô 7 chấm rồi so sánh hai phương pháp. Mỗi phiên sinh có thể tiếp tục từ Drive.
 
 - [Cài đặt và backup](docs/COLAB_SETUP.md)
 - [Pipeline](docs/PIPELINE.md)

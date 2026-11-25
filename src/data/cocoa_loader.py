@@ -167,6 +167,28 @@ def overlay(image, mask, color):
     return result
 
 
+def export_target(target, out, visible, amodal, hidden):
+    ratio = float(hidden.sum() / amodal.sum())
+    with Image.open(target.image_path) as opened:
+        image = np.array(opened.convert("RGB"))
+    if image.shape[:2] != (target.height, target.width):
+        raise ValueError(f"Image dimensions mismatch: {target.image_path}")
+    folder = out / target.sample_id
+    folder.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(image).save(folder / "image.png")
+    for name, mask in (("visible", visible), ("gt_amodal", amodal), ("gt_hidden", hidden)):
+        Image.fromarray(mask.astype(np.uint8) * 255).save(folder / f"{name}.png")
+    record = dict(sample_id=target.sample_id, split=target.split, image_id=target.image_id,
+                  annotation_id=target.annotation_id, region_index=target.region_index,
+                  name=target.region.get("name", ""), source_filename=target.image_path.name,
+                  hidden_ratio=ratio, visible_pixels=int(visible.sum()),
+                  amodal_pixels=int(amodal.sum()), hidden_pixels=int(hidden.sum()),
+                  image=f"{target.sample_id}/image.png", visible_mask=f"{target.sample_id}/visible.png",
+                  gt_amodal=f"{target.sample_id}/gt_amodal.png", gt_hidden=f"{target.sample_id}/gt_hidden.png")
+    (folder / "sample.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    return record, image
+
+
 # Lọc theo kích thước và tỷ lệ che, rồi lưu RGB/mask cùng hệ tọa độ và manifest.
 def export_samples(ds, cfg, out):
     records, panels, used = [], [], set()
@@ -204,23 +226,7 @@ def export_samples(ds, cfg, out):
         if not isinstance(target.region.get("name"), str) or not target.region["name"].strip():
             rejected["missing_name"] += 1
             continue
-        with Image.open(target.image_path) as opened:
-            image = np.array(opened.convert("RGB"))
-        if image.shape[:2] != (target.height, target.width):
-            raise ValueError(f"Image dimensions mismatch: {target.image_path}")
-        folder = out / target.sample_id
-        folder.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(image).save(folder / "image.png")
-        for name, mask in (("visible", visible), ("gt_amodal", amodal), ("gt_hidden", hidden)):
-            Image.fromarray(mask.astype(np.uint8) * 255).save(folder / f"{name}.png")
-        record = dict(sample_id=target.sample_id, split=ds.split, image_id=target.image_id,
-                      annotation_id=target.annotation_id, region_index=target.region_index,
-                      name=target.region.get("name", ""), source_filename=target.image_path.name,
-                      hidden_ratio=ratio, visible_pixels=int(visible.sum()),
-                      amodal_pixels=int(amodal.sum()), hidden_pixels=int(hidden.sum()),
-                      image=f"{target.sample_id}/image.png", visible_mask=f"{target.sample_id}/visible.png",
-                      gt_amodal=f"{target.sample_id}/gt_amodal.png", gt_hidden=f"{target.sample_id}/gt_hidden.png")
-        (folder / "sample.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        record, image = export_target(target, out, visible, amodal, hidden)
         records.append(record)
         used.add(target.image_id)
         if len(panels) >= cfg.get("preview_limit", 20):
@@ -236,7 +242,7 @@ def export_samples(ds, cfg, out):
             thumb.thumbnail((240, 240))
             panel.paste(thumb, (col * 250 + (250 - thumb.width) // 2, 30 + (240 - thumb.height) // 2))
             draw.text((col * 250 + 5, 7), label, fill="black")
-        panel.save(folder / "preview.jpg")
+        panel.save(out / target.sample_id / "preview.jpg")
         panels.append(panel)
         if len(records) == cfg["limit"]:
             break

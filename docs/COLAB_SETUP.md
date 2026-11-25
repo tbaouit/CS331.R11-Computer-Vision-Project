@@ -1,50 +1,18 @@
-# Chạy và tiếp tục trên Colab
+# Chạy COCO-A trên Colab
 
-Đặt `cocoa_dataset.zip` tại `MyDrive/CS331/`. Dùng GPU; L4 High-RAM là điểm
-khởi đầu đã dùng cho thí nghiệm đầy đủ. Phiên chỉ đánh giá không cần giải nén
-dataset hoặc tải checkpoint của model sinh ảnh.
+Đặt `cocoa.zip` và `cocoa_annotations.json` cạnh nhau trong `MyDrive/CS331/`. Nếu chỉ có ZIP, notebook có thể tự gộp ba file annotation từ gói có `filename_mapping.csv`. Các tệp ảnh trong ZIP giữ hậu tố vật thể. Mã kiểm tra SHA-256 của gói và của annotation trước khi tiếp tục một đợt chạy.
 
-1. **Ô 1:** chọn `RUN_NAME`, ví dụ `"sd15_decoded"`, và mount Drive. Giữ nguyên tên
-   này qua các phiên thuộc cùng một đợt thí nghiệm. Dùng tên riêng cho mỗi đợt
-   muốn chạy với code hoặc config mới.
-2. **Ô 2–3:** đồng bộ repo, tạo môi trường và tải trọng số. Notebook cố định
-   commit Git từ lần chạy đầu để những phiên tiếp theo dùng cùng mã nguồn.
-   Nếu chỉ chạy baseline trong phiên này, có thể đặt
-   `PRELOAD_GENERATION_WEIGHTS = False` ở ô 3 để bỏ tải Pix2Gestalt và các model
-   của proposed. SD1.5 sẽ tải khi baseline chạy lần đầu.
-3. **Ô 4:** chọn batch. Để chạy 400 mẫu, dùng `BATCH = "test400"`,
-   `FINAL_TEST = True`, `SMOKE_LIMIT = None`. Ô này lưu manifest và hiện trạng
-   thái của từng phiên bản: `chưa chạy`, `running`, `completed`.
-4. Chạy **ô 5 cho baseline**, **ô 6 cho proposed**. Có thể chạy một ô mỗi
-   phiên. Nếu Colab ngắt, mở phiên mới, chạy **1–4** với cùng lựa chọn rồi chạy
-   lại ô đang dang dở. Các mẫu đã ghi đầy đủ và đúng checksum được bỏ qua.
-   Tránh mở hai phiên ghi vào cùng một phiên bản cùng lúc.
-5. Khi hai phương pháp đã xong, chạy **ô 7**. Nếu dùng phiên mới chỉ để chấm,
-   đặt `EVALUATION_ONLY = True` ở ô 1, rồi chạy **1–4 → 7**. Ô 7 chấm từ ảnh đã
-   lưu, không chạy sinh ảnh. Nếu ngắt giữa lúc chấm, lặp lại lộ trình này; các
-   điểm đã ghi được dùng lại khi ảnh, manifest và protocol chấm còn khớp.
+1. Chạy ô 1–3 với `RUN_NAME = "cocoa_named_sd15"` cho đợt mới. Ô 2 giải nén vào bộ nhớ local của Colab.
+2. Ở ô 4, chọn `BATCH = 10`, `BATCH = 50` hoặc `BATCH = "full"` (mặc định). Ô này xuất danh sách mẫu, kiểm tra mask và in số vật thể thực tế. Hai batch nhỏ là tiền tố của cùng danh sách xáo trộn với seed 42.
+3. Ô 5 sinh baseline, ô 6 sinh proposed. Có thể chạy ở hai phiên riêng. Sau khi ngắt, chạy lại ô 1–4 với cùng tên và cùng batch rồi chạy ô còn dang dở.
+4. Ô 7 đánh giá cả hai phương pháp từ kết quả lưu trên Drive. Để chỉ chấm trong phiên mới, đặt `EVALUATION_ONLY = True` ở ô 1, chạy ô 1–4 rồi ô 7.
 
-Kết quả nằm trong `MyDrive/CS331/results/<RUN_NAME>/<BATCH>_<N>/` (hoặc thư
-mục Drive được in ở ô 1). `profiles/` lưu trạng thái mỗi phiên bản,
-`runs/<method>/<profile>/` lưu ảnh, log và điểm; `comparisons/` lưu ZIP báo cáo cuối.
-Notebook mới ghi trực tiếp từng mẫu vào Drive. Các ZIP từ notebook cũ
-vẫn dùng được với CLI khôi phục; chúng không tự được chọn thay profile
-của đợt chạy mới.
+Mỗi batch lưu manifest, báo cáo chọn mẫu, tiến độ và kết quả tại `MyDrive/CS331/results/<RUN_NAME>/batch_<BATCH>/`. Tiến độ được lưu riêng cho từng batch.
 
-Nếu resume báo đổi profile, kiểm tra lại môi trường hoặc config. Pipeline
-giữ kết quả cũ và dừng thay vì trộn hai profile. Dùng `RUN_NAME` mới nếu
-muốn chạy với môi trường hoặc config khác.
+## Annotation và đơn vị chạy
 
-Đợt chạy RGB sau VAE dùng RUN_NAME mới. Cần sinh lại ảnh để chấm theo quy trình mới.
+`cocoa_annotations.json` gồm `images` và `annotations` của cả train/dev/test. Mỗi ảnh có đường dẫn tương đối, split, tên gốc và danh sách vùng ứng viên khớp hậu tố. Mỗi annotation giữ các vùng và mask riêng. ID annotation mới là duy nhất trong toàn tập. Trường `source_annotation_id` lưu ID gốc dùng trong bảng ánh xạ.
 
-## CLI
+Một mẫu suy luận là một vùng vật thể có cả pixel thấy được và bị che. Khi hậu tố khớp tên vùng, lấy các vùng ứng viên khớp. Khi không có tên khớp, duyệt các vùng có mask hợp lệ của cảnh và ghi `selection = unmatched_name_scene_region` trong manifest. Các bản sao cùng cảnh và cùng vùng chỉ tính một lần. Full bao gồm cả ba split và phù hợp cho đánh giá mô tả trên tập đã chọn. Số ảnh, số vật thể và số file có hậu tố là các đại lượng khác nhau.
 
-```bash
-python scripts/run_experiment.py --mode baseline --manifest outputs/dev50/manifest.json --limit 50
-python scripts/run_experiment.py --mode proposed --manifest outputs/dev50/manifest.json --limit 50
-python scripts/evaluate_runs.py --manifest outputs/dev50/manifest.json --profile baseline/<baseline_profile>
-python scripts/evaluate_runs.py --manifest outputs/dev50/manifest.json --profile proposed/<proposed_profile>
-python scripts/compare_versions.py --manifest outputs/dev50/manifest.json --baseline outputs/runs/baseline/<baseline_profile> --proposed outputs/runs/proposed/<proposed_profile> --output outputs/comparisons/dev50
-```
-
-Thay các trường trong dấu ngoặc nhọn bằng ID profile tương ứng. Khi chạy test400, thay đường dẫn manifest, đặt limit 400 và thêm `--allow-test` ở bước sinh.
+Có thể tái tạo file gộp bằng `python scripts/merge_cocoa_annotations.py cocoa.zip cocoa_annotations.json`.

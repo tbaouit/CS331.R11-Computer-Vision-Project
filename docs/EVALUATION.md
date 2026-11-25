@@ -5,7 +5,7 @@
 - CLIP đo độ phù hợp với nhãn vật thể; SeamMAE và histogram màu so phần thấy và phần khuất của cùng ảnh đầu ra để chẩn đoán tính
   liên tục. Chúng không đo RGB thật của vùng khuất.
 - PSNR, SSIM, LPIPS, Feature Similarity so sánh RGB đầu ra với ảnh gốc sau khi tô đen ngoài vùng thấy. Phần nền đen chung có thể làm điểm cao khi vật thể nhỏ.
-- FID là tùy chọn cho test400: đặt `FID_REFERENCE` ở ô 7 trỏ tới một thư mục
+- FID là tùy chọn cho batch có ít nhất 400 vật thể: đặt `FID_REFERENCE` ở ô 7 trỏ tới một thư mục
   tối thiểu 400 crop vật thể thật không bị che, nền trắng và tỉ lệ lớp phù hợp.
   COCO-A không cấp ảnh RGB vùng khuất tương ứng nên không dùng ảnh bị che làm
   chuẩn FID. Cùng bộ tham chiếu được dùng cho mọi phương pháp; báo cáo lưu hash
