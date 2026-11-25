@@ -87,6 +87,38 @@ def _patch_transformers_legacy_compat() -> None:
         setattr(mu, "apply_chunking_to_forward", _apply_chunking_to_forward)
 
 
+def _patch_groundingdino_deform_attn() -> None:
+    """Fallback `MultiScaleDeformableAttnFunction` to `multi_scale_deform_attn_core_pytorch` on GPU when `_C` is uncompiled."""
+    import importlib
+
+    for mod_name in (
+        "GroundingDINO.groundingdino.models.GroundingDINO.ms_deform_attn",
+        "groundingdino.models.GroundingDINO.ms_deform_attn",
+    ):
+        try:
+            mod = importlib.import_module(mod_name)
+        except Exception:
+            continue
+        if not hasattr(mod, "_C") and hasattr(mod, "MultiScaleDeformableAttnFunction") and hasattr(
+            mod, "multi_scale_deform_attn_core_pytorch"
+        ):
+            core_fn = mod.multi_scale_deform_attn_core_pytorch
+
+            @staticmethod
+            def _fallback_forward(
+                ctx,
+                value,
+                value_spatial_shapes,
+                value_level_start_index,
+                sampling_locations,
+                attention_weights,
+                im2col_step,
+            ):
+                return core_fn(value, value_spatial_shapes, sampling_locations, attention_weights)
+
+            mod.MultiScaleDeformableAttnFunction.forward = _fallback_forward
+
+
 def validate_openworld_proposed_config(config: dict) -> None:
     """Validate that `configs/proposed.json` configures the Open-World Amodal SD2 pipeline."""
     if config.get("pipeline_mode") != "proposed":
@@ -253,6 +285,7 @@ class GroundingDINOModel:
             from groundingdino.models import build_model
             from groundingdino.util.slconfig import SLConfig
             from groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
+        _patch_groundingdino_deform_attn()
 
         resolved_cfg = resolve_project_path(config_path)
         resolved_ckpt = resolve_project_path(ckpt_path)
@@ -405,15 +438,19 @@ class InstaOrderModel:
         ckpt_path: str | Path = "ckpt/InstaOrder_InstaOrderNet_od.pth.tar",
         device: str = "cpu",
     ):
-        insta_models, insta_infer = _import_instaorder_modules()
-
+        self.device = device
+        self.model = None
+        self._infer = None
         resolved_ckpt = resolve_project_path(ckpt_path)
         if not resolved_ckpt.is_file():
-            raise FileNotFoundError(
-                f"InstaOrder checkpoint not found: {resolved_ckpt} (run setup_colab.sh or scripts/download_weights.py)"
+            print(
+                f"[InstaOrder] Checkpoint {resolved_ckpt.name} not found; using geometric boundary-overlap "
+                "occlusion analysis fallback.",
+                flush=True,
             )
+            return
+        insta_models, insta_infer = _import_instaorder_modules()
         print(f"[Models] Loading InstaOrderNet_od (ResNet-50) from {resolved_ckpt}...", flush=True)
-        self.device = device
         self._infer = insta_infer
         params = {
             "algo": "InstaOrderNet_od",
@@ -440,6 +477,8 @@ class InstaOrderModel:
         import torch
 
         self.device = device
+        if self.model is None:
+            return self
         if hasattr(self.model, "model") and isinstance(self.model.model, torch.nn.Module):
             self.model.model.to(device)
         for attr in dir(self.model):
@@ -476,13 +515,28 @@ class InstaOrderModel:
         return np.array(expanded)
 
     def analyze_masks(self, img: np.ndarray, masks: list[np.ndarray] | np.ndarray, mask_id: int) -> list[np.ndarray]:
-        """Determine which masks occlude `masks[mask_id]` using InstaOrderNet_od."""
+        """Determine which masks occlude `masks[mask_id]` using InstaOrderNet_od (or geometric adjacency fallback)."""
         if len(masks) <= 1:
             return []
         h, w = masks[0].shape[:2]
         modal = np.zeros((len(masks), h, w), dtype=np.uint8)
         for i, mask in enumerate(masks):
             modal[i] = (mask > 0).astype(np.uint8)
+
+        if self.model is None or self._infer is None:
+            from src.vision.image_ops import binary_dilate
+
+            target = modal[int(mask_id)] > 0
+            dilated_target = binary_dilate(target, 5)
+            occluders: list[np.ndarray] = []
+            for idx in range(len(modal)):
+                if idx == int(mask_id):
+                    continue
+                cand = modal[idx] > 0
+                if np.any(cand & dilated_target) and float(cand.sum()) < 0.75 * float(h * w):
+                    occluders.append(modal[idx])
+            return occluders
+
         bboxes = self.find_expand_bboxes(modal)
 
         pcolor_occ_order, _ = self._infer.infer_order_sup_occ_depth(
