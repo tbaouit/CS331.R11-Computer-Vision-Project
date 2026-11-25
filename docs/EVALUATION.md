@@ -1,14 +1,11 @@
-# Đánh giá chung V1 / V2 / V3 / V3-no-IP
+# Đánh giá baseline và proposed
 
-Ô 8 tính metric từ ảnh đã lưu bằng `scripts/evaluate_runs.py`, rồi gọi
-`scripts/compare_versions.py`. Bước so sánh kiểm tra cùng manifest, ảnh, mask,
-backbone, scheduler, seed và protocol. V3-no-IP chỉ được chấp nhận khi khác
-V3 đúng cờ IP-Adapter.
+Ô 7 chấm ảnh completion.png và tổng hợp kết quả theo cùng manifest, config, seed và protocol.
 
-- CLIP đo độ phù hợp với nhãn vật thể; SeamMAE và histogram màu chẩn đoán tính
+- CLIP đo độ phù hợp với nhãn vật thể; SeamMAE và histogram màu so phần thấy và phần khuất của cùng ảnh đầu ra để chẩn đoán tính
   liên tục. Chúng không đo RGB thật của vùng khuất.
-- PSNR, SSIM, LPIPS, Feature Similarity chỉ xét vùng nhìn thấy.
-- FID là tùy chọn cho test400: đặt `FID_REFERENCE` ở ô 8 trỏ tới một thư mục
+- PSNR, SSIM, LPIPS, Feature Similarity so sánh RGB đầu ra với ảnh gốc sau khi tô đen ngoài vùng thấy. Phần nền đen chung có thể làm điểm cao khi vật thể nhỏ.
+- FID là tùy chọn cho test400: đặt `FID_REFERENCE` ở ô 7 trỏ tới một thư mục
   tối thiểu 400 crop vật thể thật không bị che, nền trắng và tỉ lệ lớp phù hợp.
   COCO-A không cấp ảnh RGB vùng khuất tương ứng nên không dùng ảnh bị che làm
   chuẩn FID. Cùng bộ tham chiếu được dùng cho mọi phương pháp; báo cáo lưu hash
@@ -18,6 +15,6 @@ V3 đúng cờ IP-Adapter.
 
 `per_sample.csv` và `summary.csv` chứa chỉ số từng mẫu và thống kê. `comparison.json`
 lưu profile, config, protocol, tỷ lệ PASS/REJECT theo lượt, tỷ lệ mẫu được
-chấp nhận và số phản hồi JSON lỗi. V1 không có critic nên tỷ lệ để trống.
+chấp nhận và số phản hồi JSON lỗi. Baseline không có critic nên tỷ lệ để trống.
 `preview_*.jpg` là tối đa 20 mẫu chọn bằng seed 42, gồm Input Crop, Visible Mask,
-Given Mask và đầu ra V1/V2/V3. Ablation xuất trong CSV/JSON.
+Given Mask và đầu ra baseline, proposed.

@@ -1,4 +1,4 @@
-# Phạm vi: V3: đánh giá hai tiêu chí riêng, chỉ PASS khi cả hai đạt ngưỡng và Qwen đồng ý.
+# Phạm vi: Proposed: đánh giá hai tiêu chí riêng, chỉ PASS khi cả hai đạt ngưỡng và Qwen đồng ý.
 """Independent appearance and structure checks."""
 import math
 from src.vlm.json_response import _json_object, _string, validated_generation
@@ -14,7 +14,7 @@ Images are registered crops at the SAME scale: (1) original local scene,
 (2) visible target on white, (3) candidate completion on white,
 (4) region map: WHITE=observed target, BLUE=generated hidden area, BLACK=outside.
 Evaluate only this target, especially the BLUE region and its junction with
-WHITE. Copied visible pixels do not establish successful reconstruction.
+WHITE. Examine decoded visible appearance alongside the generated region.
 Assess agreement of generated colors/material/pattern with the visible target,
 and continuity of edges, pose, parts and surface across the visible/hidden seam.
 Reject residual occluders, extra objects, broken anatomy and implausible seams.

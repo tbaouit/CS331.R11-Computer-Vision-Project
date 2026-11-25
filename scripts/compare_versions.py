@@ -1,5 +1,3 @@
-# Phạm vi: Ô 8: đối chiếu cùng mẫu, mask và protocol rồi xuất bảng/ảnh cho V1/V2/V3 và V3 tắt
-# adapter nếu có.
 """Report comparable SD1.5 experiments on a fixed manifest."""
 import argparse
 from collections import Counter
@@ -12,43 +10,25 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.eval.profiles import load_evaluation, verified_jobs
 from src.eval.visualize import comparison_grid
-from src.models.sd15_ip_adapter import SD15_INPAINTING
 from src.evaluation.reporting import aggregate, write_json
 from src.evaluation.runner import read_mask, read_rgb
 import numpy as np
 
 
-ROLES = {"v1": (1, "sd15_direct"), "v2": (2, "oracle_mask"),
-         "v3": (3, "oracle_mask"), "v3_no_ip": (3, "oracle_mask")}
-FLAGS = ("use_micro_attributes", "use_ip_adapter", "use_latent_blending", "use_strict_critic")
+from src.pipelines.backend import validate_experiment_config
+
+ROLES = ("baseline", "proposed")
 
 
-# Yêu cầu cùng checkpoint, seed, scheduler và mask; phép ablation chỉ được đổi cờ IP-Adapter.
 def check_configs(configs):
-    for key, cfg in configs.items():
-        if (cfg.get("pipeline_version"), cfg.get("pipeline_mode")) != ROLES[key]:
-            raise ValueError(f"Profile does not match role {key}")
-        if (cfg.get("inpainting_model_id") != SD15_INPAINTING or cfg.get("seed") != 42
-                or cfg.get("refinement_scheduler") != "ddim"
-                or cfg.get("use_occluded_mask_input") is not True
-                or cfg.get("text_query_policy", "empty") != "empty"):
-            raise ValueError(f"Inconsistent experiment settings for {key}")
-        if key == "v1" and any(cfg.get(flag) for flag in (*FLAGS, "enable_critic")):
-            raise ValueError("V1 must use direct inpainting without guidance modules or a critic")
-        if key != "v1":
-            expected = ((True, key == "v3", True, True) if key.startswith("v3") else (False,) * 4)
-            if tuple(cfg.get(flag) for flag in FLAGS) != expected or not cfg.get("enable_critic"):
-                raise ValueError(f"Wrong feature flags for {key}")
-    if "v3_no_ip" in configs:
-        proposed, ablation = configs["v3"], configs["v3_no_ip"]
-        if dict(proposed, use_ip_adapter=False) != ablation:
-            raise ValueError("V3 ablation must differ only by use_ip_adapter")
-    v2, v3 = configs["v2"], configs["v3"]
-    if any(v2.get(k) != v3.get(k) for k in (set(v2) | set(v3)) - {*FLAGS, "pipeline_version"}):
-        raise ValueError("V2 and V3 must share hyperparameters apart from the proposed feature flags")
+    if set(configs) != set(ROLES):
+        raise ValueError("Expected baseline and proposed")
+    for role, config in configs.items():
+        if validate_experiment_config(config) != role or config.get("seed") != 42:
+            raise ValueError(f"Inconsistent configuration for {role}")
 
 
-# Tách tỷ lệ PASS theo lượt và theo mẫu; V1 để trống vì không dùng critic.
+# Tách tỷ lệ PASS theo lượt và theo mẫu; Baseline để trống vì không dùng critic.
 def critic_summary(selected):
     counts, invalid = Counter(), 0
     reviewed = passed = 0
@@ -72,8 +52,8 @@ def critic_summary(selected):
 def compare_versions(records, profiles, output, fid_reference=None, device="cuda"):
     if not records or len({r["sample_id"] for r in records}) != len(records):
         raise ValueError("Expected a nonempty manifest with unique sample IDs")
-    if set(profiles) not in ({"v1", "v2", "v3"}, set(ROLES)) or len(set(profiles.values())) != len(profiles):
-        raise ValueError("Provide distinct profiles for V1, V2, V3 and optionally V3-no-IP")
+    if set(profiles) != set(ROLES) or len(set(profiles.values())) != len(profiles):
+        raise ValueError("Provide distinct profiles for baseline and proposed")
     jobs, reports, configs = {}, {}, {}
     protocol = None
     for key, profile in profiles.items():
@@ -93,7 +73,7 @@ def compare_versions(records, profiles, output, fid_reference=None, device="cuda
     paired = []
     for record in records:
         sid = record["sample_id"]
-        base, _, hashes = jobs["v1"][sid]
+        base, _, hashes = jobs["baseline"][sid]
         entry = {"sample_id": sid, "category": record.get("name"), "hidden_ratio": record.get("hidden_ratio")}
         for key in profiles:
             job, result, current = jobs[key][sid]
@@ -121,7 +101,7 @@ def compare_versions(records, profiles, output, fid_reference=None, device="cuda
     write_json(output / "comparison.json", summary)
     with (output / "summary.csv").open("w", newline="", encoding="utf-8-sig") as stream:
         writer = csv.writer(stream)
-        writer.writerow(["version", "metric", "mean", "std", "n"])
+        writer.writerow(["method", "metric", "mean", "std", "n"])
         for key, metrics in summary["metrics"].items():
             for metric, stat in metrics.items():
                 writer.writerow([key, metric, stat["mean"], stat["std"], stat["n"]])
@@ -140,7 +120,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     for role in ROLES:
-        parser.add_argument("--" + role.replace("_", "-"), type=Path, required=role != "v3_no_ip")
+        parser.add_argument("--" + role.replace("_", "-"), type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--fid-reference", type=Path, help="Folder of clean, isolated, unoccluded RGB crops")
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")

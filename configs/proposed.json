@@ -1,6 +1,6 @@
 {
   "seed": 42,
-  "pipeline_mode": "oracle_mask",
+  "pipeline_mode": "proposed",
   "use_occluded_mask_input": true,
   "oracle_roi_scale": 1.65,
   "pix2gestalt_ddim_steps": 75,
@@ -14,7 +14,6 @@
   "enable_critic": true,
   "text_query_policy": "empty",
   "appearance_metrics": false,
-  "pipeline_version": 3,
   "use_micro_attributes": true,
   "use_ip_adapter": true,
   "use_latent_blending": true,

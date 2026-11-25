@@ -58,9 +58,11 @@ def main():
     if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=ROOT / "outputs/dev50/manifest.json")
-    parser.add_argument("--config", type=Path, default=ROOT / "configs/v1_sd15_direct.json")
+    method = parser.add_mutually_exclusive_group()
+    method.add_argument("--mode", choices=("baseline", "proposed"))
+    method.add_argument("--config", type=Path)
     parser.add_argument("--limit", type=int, default=10)
-    parser.add_argument("--runs-root", type=Path, default=ROOT / "outputs/runs",
+    parser.add_argument("--runs-root", type=Path, default=None,
                         help="Write sample artifacts directly here; can be a mounted Drive folder")
     parser.add_argument("--profile-state", type=Path,
                         help="Track this batch across sessions; refuse an incompatible profile/manifest")
@@ -71,9 +73,11 @@ def main():
     parser.add_argument("--validate-only", action="store_true", help="Validate prepared data without importing torch or loading models")
     parser.add_argument("--profile-output", type=Path, help="Write the exact successful profile ID for notebook follow-up cells")
     args = parser.parse_args()
-    config = json.loads(args.config.read_text(encoding="utf-8"))
+    config_path = args.config or ROOT / "configs" / ((args.mode or "baseline") + ".json")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
     from src.pipelines.backend import validate_experiment_config
     validate_experiment_config(config)
+    args.runs_root = args.runs_root or ROOT / "outputs/runs" / config["pipeline_mode"]
     records = json.loads(args.manifest.read_text(encoding="utf-8"))
     if args.limit < 1: raise ValueError("--limit must be positive")
     records = records[:args.limit]
@@ -141,7 +145,7 @@ def main():
                         random.seed(config["seed"]); np.random.seed(config["seed"])
                         torch.manual_seed(config["seed"]); torch.cuda.manual_seed_all(config["seed"])
                         result, skipped = run_one(record, args.manifest.resolve().parent, output_root, config, lazy, profile)
-                        if config.get("pipeline_version") in (2, 3):
+                        if config.get("pipeline_mode") == "proposed":
                             from src.evaluation.critic_logs import update_critic_log
                             update_critic_log(output_root, result)
                         results.append(dict(sample_id=record["sample_id"], status="completed", resumed=skipped, metrics=result["metrics"]))

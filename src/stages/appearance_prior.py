@@ -1,4 +1,4 @@
-# Phạm vi: V2/V3: phối màu prior Pix2Gestalt với phần nhìn thấy, điền lỗ và giảm bóng/vệt từ vật
+# Phạm vi: proposed: phối màu prior Pix2Gestalt với phần nhìn thấy, điền lỗ và giảm bóng/vệt từ vật
 # che trước khi inpaint.
 """Appearance seed construction, color harmonization, and boundary continuation."""
 from __future__ import annotations

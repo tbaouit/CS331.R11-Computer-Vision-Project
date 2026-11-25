@@ -1,4 +1,4 @@
-# Phạm vi: V2/V3: Pix2Gestalt sinh prior RGB 2D, CarveKit tách alpha tin cậy. Biên đầu ra vẫn căn
+# Phạm vi: proposed: Pix2Gestalt sinh prior RGB 2D, CarveKit tách alpha tin cậy. Biên đầu ra vẫn căn
 # theo mask cho sẵn.
 """Pix2Gestalt latent-diffusion loader + CarveKit matting interface (strict: fail loudly, never fall back)."""
 from __future__ import annotations

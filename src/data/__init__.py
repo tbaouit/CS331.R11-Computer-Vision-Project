@@ -1,2 +1,2 @@
-# Phạm vi: Dùng chung V1/V2/V3: dataset COCO-A, mask và manifest cố định.
-"""Data modules for the three SD1.5 experiments."""
+# Phạm vi: Dùng chung baseline và proposed: dataset COCO-A, mask và manifest cố định.
+"""Data modules for the two SD1.5 methods."""

@@ -1,4 +1,4 @@
-# Phạm vi: Ô 8: tạo lưới ảnh dùng cùng crop và cùng mẫu cho V1/V2/V3 để so sánh trực quan.
+# Phạm vi: Ô 7: tạo lưới ảnh dùng cùng crop và cùng mẫu cho baseline và proposed để so sánh trực quan.
 """Shared square crops for inspection and the reference-set evaluation."""
 import random
 
@@ -37,21 +37,21 @@ def render_tile(path, box, size=224, mask=False):
     return canvas
 
 
-# Lấy mẫu bằng seed cố định rồi chia lưới sáu cột thành từng trang.
+# Lấy mẫu bằng seed cố định rồi chia lưới năm cột thành từng trang.
 def comparison_grid(output, records, jobs, count=20, seed=42):
     chosen = random.Random(seed).sample(records, min(count, len(records)))
     files = []
-    labels = ("Input Crop", "Visible Mask", "Given Mask", "V1 Direct", "V2 Pipeline", "V3 Proposed")
+    labels = ("Input Crop", "Visible Mask", "Given Mask", "Baseline", "Proposed")
     for start in range(0, len(chosen), 4):
         group = chosen[start:start+4]
-        grid = Image.new("RGB", (6 * 236, len(group) * 277), "white")
+        grid = Image.new("RGB", (len(labels) * 236, len(group) * 277), "white")
         draw = ImageDraw.Draw(grid)
         for row, record in enumerate(group):
             sid = record["sample_id"]
-            first = jobs["v1"][sid][0]
+            first = jobs["baseline"][sid][0]
             box = object_box(read_mask(first / "amodal.png"))
             paths = [first / name for name in ("input.png", "visible.png", "amodal.png")]
-            paths += [jobs[key][sid][0] / "completion.png" for key in ("v1", "v2", "v3")]
+            paths += [jobs[key][sid][0] / "completion.png" for key in ("baseline", "proposed")]
             y = row * 277
             caption = f"{sid} | {record.get('name', '')} | hidden {record.get('hidden_ratio', 0):.0%}"
             draw.text((6, y+4), caption, fill="black")

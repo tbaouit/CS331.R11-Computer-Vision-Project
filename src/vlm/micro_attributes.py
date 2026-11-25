@@ -1,4 +1,4 @@
-# Phạm vi: V3: lấy màu, chất liệu và họa tiết từ vùng nhìn thấy rồi tạo prompt SD1.5.
+# Phạm vi: Proposed: lấy màu, chất liệu và họa tiết từ vùng nhìn thấy rồi tạo prompt SD1.5.
 """Structured surface descriptions for the proposed pipeline."""
 from src.vlm.json_response import _json_object, _string, validated_generation
 

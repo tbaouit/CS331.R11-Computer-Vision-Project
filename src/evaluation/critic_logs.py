@@ -1,4 +1,4 @@
-# Phạm vi: V2/V3: tổng hợp lượt thử critic theo mẫu và signature; V1 không có critic.
+# Phạm vi: proposed: tổng hợp lượt thử critic theo mẫu và signature; Baseline không có critic.
 """Resume-safe, compact batch critic log; raw Qwen responses remain per sample."""
 import json
 import os
@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Cập nhật log tổng hợp theo chữ ký mẫu; chạy lại không cộng trùng lượt cũ.
 def update_critic_log(root, result):
-    if result.get("config", {}).get("pipeline_version") not in (2, 3):
+    if result.get("config", {}).get("pipeline_mode") != "proposed":
         return
     path = Path(root) / "critic_logs.jsonl"
     existing = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()] if path.is_file() else []

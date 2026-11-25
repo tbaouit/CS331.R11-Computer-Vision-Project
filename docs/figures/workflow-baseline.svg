@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1360" height="900" viewBox="0 0 1360 900" xml:lang="vi" role="img" aria-labelledby="title desc">
-<title id="title">V1 · Inpainting trực tiếp</title>
+<title id="title">Baseline · Inpainting trực tiếp</title>
 <desc id="desc">Luồng từ ảnh và hai mask COCO-A qua canvas xám, SD 1.5 chạy một lần và ghép RGBA.</desc>
 <defs>
 <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
@@ -29,7 +29,7 @@
 <text x="44" y="38" fill="#9bdbcb" font-size="17" font-weight="650" >COCO-A    /    KHÔI PHỤC VẬT THỂ BỊ CHE KHUẤT</text>
 <text x="44" y="95" fill="#fff" font-size="44" font-weight="680" >Inpainting trực tiếp bằng SD 1.5</text>
 <text x="45" y="135" fill="#deeeea" font-size="21" font-weight="400" >Một prompt cố định và một lượt sinh RGB cho phần bị che.</text>
-<text x="1308" y="59" fill="#9bdbcb" font-size="34" font-weight="700" text-anchor="end">V1</text>
+<text x="1308" y="59" fill="#9bdbcb" font-size="34" font-weight="700" text-anchor="end">Baseline</text>
 <text x="44" y="210" fill="#162e39" font-size="25" font-weight="700" >Dữ liệu cho một vật thể</text>
 <text x="1316" y="209" fill="#526a75" font-size="18" font-weight="400" text-anchor="end">Ví dụ minh họa bằng một chiếc bình</text>
 <rect x="44" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
@@ -113,8 +113,8 @@
 <path d="M60 15 Q70 17 82 14" fill="none" stroke="#3e847a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
 </g>
 </g>
-<text x="954" y="675" fill="#405965" font-size="19" font-weight="400" >Lấy RGB vừa sinh trong H.</text>
-<text x="954" y="704" fill="#405965" font-size="19" font-weight="400" >Hòa biên rồi chép lại pixel gốc ở V.</text>
+<text x="954" y="675" fill="#405965" font-size="19" font-weight="400" >Lấy toàn bộ RGB sau giải mã.</text>
+<text x="954" y="704" fill="#405965" font-size="19" font-weight="400" >Giữ cả phần thấy và phần khuất.</text>
 <text x="954" y="733" fill="#405965" font-size="19" font-weight="400" >Kênh alpha lấy từ mask A,</text>
 <text x="954" y="762" fill="#405965" font-size="19" font-weight="400" >nền ngoài vật thể trong suốt.</text>
 <path d="M44 839 H1316" fill="none" stroke="#cbd9d9" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />

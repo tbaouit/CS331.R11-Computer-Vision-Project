@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1360" height="1394" viewBox="0 0 1360 1394" xml:lang="vi" role="img" aria-labelledby="title desc">
-<title id="title">V3 · Khôi phục có hướng dẫn và phản hồi</title>
+<title id="title">Proposed · Khôi phục có hướng dẫn và phản hồi</title>
 <desc id="desc">Ba nguồn hướng dẫn đưa vào SD 1.5, Qwen chấm từng ứng viên, phản hồi trở về bước tinh chỉnh.</desc>
 <defs>
 <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
@@ -29,7 +29,7 @@
 <text x="44" y="38" fill="#9bdbcb" font-size="17" font-weight="650" >COCO-A    /    KHÔI PHỤC VẬT THỂ BỊ CHE KHUẤT</text>
 <text x="44" y="95" fill="#fff" font-size="44" font-weight="680" >Khôi phục có hướng dẫn và phản hồi</text>
 <text x="45" y="135" fill="#deeeea" font-size="21" font-weight="400" >Mô tả bề mặt, ảnh hoàn chỉnh sơ bộ và vùng nhìn thấy cùng hướng dẫn SD 1.5.</text>
-<text x="1308" y="59" fill="#9bdbcb" font-size="34" font-weight="700" text-anchor="end">V3</text>
+<text x="1308" y="59" fill="#9bdbcb" font-size="34" font-weight="700" text-anchor="end">Proposed</text>
 <text x="44" y="210" fill="#162e39" font-size="25" font-weight="700" >Dữ liệu cho một vật thể</text>
 <text x="1316" y="209" fill="#526a75" font-size="18" font-weight="400" text-anchor="end">Ví dụ minh họa bằng một chiếc bình</text>
 <rect x="44" y="230" width="305" height="112" rx="12" fill="#fff" stroke="#cbd9d9"/>
@@ -120,8 +120,8 @@
 <path d="M384 749 V886" fill="none" stroke="#cbd9d9" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
 <text x="410" y="773" fill="#405965" font-size="19" font-weight="400" >Nhận prompt, ảnh khởi tạo, đặc trưng ảnh và mask inpaint.</text>
 <text x="410" y="804" fill="#405965" font-size="19" font-weight="400" >Mỗi bước DDIM giữ latent sinh trong vùng cho phép sửa và khôi phục latent</text>
-<text x="410" y="835" fill="#405965" font-size="19" font-weight="400" >tham chiếu bên ngoài theo mức nhiễu của bước đó. Sau khi giải mã, khóa màu</text>
-<text x="410" y="866" fill="#405965" font-size="19" font-weight="400" >theo prior, hòa biên, chép lại V và gắn alpha từ A để tạo ứng viên RGBA.</text>
+<text x="410" y="835" fill="#405965" font-size="19" font-weight="400" >tham chiếu bên ngoài theo mức nhiễu của bước đó. Sau giải mã, đưa toàn bộ ROI</text>
+<text x="410" y="866" fill="#405965" font-size="19" font-weight="400" >về tọa độ gốc rồi gắn alpha từ A để tạo ứng viên RGBA.</text>
 <path d="M680 907 V941" fill="none" stroke="#086d6a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <rect x="44" y="951" width="1272" height="181" rx="14" fill="#fff" stroke="#cbd9d9"/>
 <text x="68" y="987" fill="#93520c" font-size="16" font-weight="700" >05    /    ĐÁNH GIÁ ỨNG VIÊN</text>

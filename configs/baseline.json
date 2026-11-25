@@ -1,6 +1,6 @@
 {
   "seed": 42,
-  "pipeline_mode": "sd15_direct",
+  "pipeline_mode": "baseline",
   "use_occluded_mask_input": true,
   "inpainting_model_id": "stable-diffusion-v1-5/stable-diffusion-inpainting",
   "device": "cuda",
@@ -12,7 +12,6 @@
   "guidance_scale": 7.0,
   "num_inference_steps": 28,
   "refinement_scheduler": "ddim",
-  "pipeline_version": 1,
   "use_ip_adapter": false,
   "use_latent_blending": false
 }

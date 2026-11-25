@@ -1,4 +1,4 @@
-# Phạm vi: Cả ba phiên bản: CLIP logit chấm ảnh hoàn chỉnh; LPIPS/SSIM/PSNR và cosine chỉ kiểm tra
+# Phạm vi: Cả hai phiên bản: CLIP logit chấm ảnh hoàn chỉnh; LPIPS/SSIM/PSNR và cosine chỉ kiểm tra
 # phần nhìn thấy.
 """Author protocol: full-canvas RGB masked to black outside the visible region.
 
@@ -10,10 +10,12 @@ from __future__ import annotations
 import numpy as np
 
 CLIP_METRIC_MODEL_ID = "openai/clip-vit-base-patch32"
-PROTOCOL = "scamodal_author_visible_black_v1"
+PROTOCOL = "decoded_rgb_visible_black"
 METRIC_NAMES = ("CLIP_score", "LPIPS", "Feature_Similarity", "SSIM", "PSNR")
 POLICY = {
     "protocol": PROTOCOL,
+    "output": "decoded ROI RGB after paste-back; given amodal alpha",
+    "seam_and_color": "compare visible and hidden regions on the output RGB",
     "reference": "original input RGB; no hidden RGB ground truth",
     "CLIP_score": "full output RGB vs raw annotation class name; scaled CLIP image/text logit",
     "visible_metrics": "original canvas, black outside visible mask; no crop or manual resize",
@@ -26,7 +28,7 @@ POLICY = {
 _cache: dict = {}
 
 
-# Cache CLIP chấm điểm theo thiết bị; tách với CLIP chọn prompt trong V2/V3.
+# Cache CLIP chấm điểm theo thiết bị; tách với CLIP chọn prompt trong proposed.
 def _clip(device: str):
     key = ("clip", device)
     if key not in _cache:

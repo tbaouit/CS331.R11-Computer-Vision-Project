@@ -1,4 +1,4 @@
-"""CPU regressions for V2 schemas, retry decisions, data flow and batch logging."""
+"""CPU regressions for Proposed schemas, retry decisions, data flow and batch logging."""
 import contextlib
 import io
 import json
@@ -12,16 +12,16 @@ import numpy as np
 
 from src.vlm.micro_attributes import parse_micro_attributes, run_micro_reasoning
 from src.vlm.strict_critic import parse_strict_critic, run_strict_critic
-from src.models.sd15_ip_adapter import validate_v2_config, blend_latents, ddim_previous_timestep
-from src.pipelines.v3_proposed import V3Proposed
-from src.pipelines.v2_pipeline import critic_panels
+from src.models.sd15_ip_adapter import validate_proposed_config, blend_latents, ddim_previous_timestep
+from src.pipelines.proposed import Proposed
+from src.pipelines.proposed import critic_panels
 from src.evaluation.critic_logs import update_critic_log
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def config():
-    return json.loads((ROOT / "configs/v3_sd15_proposed.json").read_text())
+    return json.loads((ROOT / "configs/proposed.json").read_text())
 
 
 def judgment(score=8, decision="PASS"):
@@ -29,11 +29,11 @@ def judgment(score=8, decision="PASS"):
                            final_decision=decision, reason="Texture assessment", repair_instruction="continuous wood grain"))
 
 
-class V2Tests(unittest.TestCase):
+class GenerationTests(unittest.TestCase):
     def test_sd15_baseline_uses_only_inpainting_and_correct_metadata(self):
-        from src.pipelines.v1_direct import V1Direct
+        from src.pipelines.baseline import Baseline
         from src.evaluation.runner import _uses_occluded_mask_input
-        cfg = json.loads((ROOT / "configs/v1_sd15_direct.json").read_text())
+        cfg = json.loads((ROOT / "configs/baseline.json").read_text())
         self.assertTrue(_uses_occluded_mask_input(cfg))
         image = np.full((48, 64, 3), 140, np.uint8)
         vis = np.zeros((48, 64), bool)
@@ -41,18 +41,34 @@ class V2Tests(unittest.TestCase):
         hidden = np.zeros_like(vis)
         hidden[10:30, 20:30] = True
         models = SimpleNamespace(device="cpu", pipe=object())
-        with patch("src.pipelines.v1_direct.run_inpaint_roi_pass", return_value=image) as call:
-            result = V1Direct(models, cfg).complete(image, vis, hidden)
+        with patch("src.pipelines.baseline.run_inpaint_roi_pass", return_value=np.full_like(image, 77)) as call:
+            result = Baseline(models, cfg).complete(image, vis, hidden)
         call.assert_called_once()
+        self.assertTrue(np.all(result["inpainted_rgba"][..., :3] == 77))
         self.assertIn("SD1.5 Direct", result["_trace"]["backend"])
         self.assertEqual(result["critique_history"], [])
         self.assertEqual(result["_trace"]["refinement_scheduler"], "DDIMScheduler")
+
+    def test_refiner_returns_entire_decoded_patch_and_seam_uses_output(self):
+        from src.stages.inpaint_refiner import refine_exact_mask
+        from src.eval.metrics import compute_appearance_coherence_metrics
+        canvas = np.zeros((40, 48, 3), np.uint8)
+        visible = np.zeros(canvas.shape[:2], bool)
+        visible[8:30, 10:20] = True
+        hidden = np.zeros_like(visible)
+        hidden[8:30, 20:30] = True
+        decoded = np.full_like(canvas, 180)
+        with patch("src.stages.inpaint_refiner.run_inpaint_roi_pass", return_value=decoded):
+            actual = refine_exact_mask(None, "cpu", canvas, visible, hidden, "", "", .24, 6, 28, 42)
+        np.testing.assert_array_equal(actual, decoded)
+        stats = compute_appearance_coherence_metrics(visible, hidden, actual)
+        self.assertEqual(stats, {"seam_mae": 0.0, "color_hist_sim": 1.0})
 
     def test_non_sd15_backbone_is_rejected(self):
         cfg = config()
         cfg["inpainting_model_id"] = "unsupported-model"
         with self.assertRaisesRegex(ValueError, "SD1.5"):
-            validate_v2_config(cfg)
+            validate_proposed_config(cfg)
 
     def test_micro_json_and_format_repair_do_not_invent_attributes(self):
         raw = json.dumps(dict(object_class="table", primary_color="dark brown", secondary_colors=["black"],
@@ -89,7 +105,7 @@ class V2Tests(unittest.TestCase):
     def make_completer(self, cfg=None):
         cfg = cfg or config()
         models = SimpleNamespace(device="cpu", pipe=SimpleNamespace(tokenizer=None))
-        completer = V3Proposed(models, cfg)
+        completer = Proposed(models, cfg)
         image = np.full((48, 64, 3), [90, 120, 150], np.uint8)
         vis = np.zeros((48, 64), bool)
         vis[10:30, 8:25] = True
@@ -108,7 +124,7 @@ class V2Tests(unittest.TestCase):
         completer._refine = refine
         return completer, image, vis, occ, calls
 
-    def test_retry_stops_on_pass_and_preserves_visible_and_exact_mask(self):
+    def test_retry_stops_on_pass_and_keeps_decoded_rgb_and_exact_mask(self):
         completer, image, vis, occ, calls = self.make_completer()
         responses = [parse_strict_critic(judgment(5)), parse_strict_critic(judgment(8)), parse_strict_critic(judgment(9))]
         completer._critique = lambda *a: responses.pop(0)
@@ -121,7 +137,7 @@ class V2Tests(unittest.TestCase):
         self.assertIn("continuous wood grain", calls[1][4])
         self.assertEqual(result["_trace"]["selected_attempt"], 2)
         self.assertTrue(result["critic_accepted"])
-        np.testing.assert_array_equal(result["inpainted_rgba"][:, :, :3][vis], image[vis])
+        self.assertTrue(np.all(result["inpainted_rgba"][..., :3] == 100))
         np.testing.assert_array_equal(result["inpainted_rgba"][:, :, 3] > 0, vis | occ)
 
     def test_exhausted_retries_returns_best_rejection_without_claiming_pass(self):
@@ -161,7 +177,7 @@ class V2Tests(unittest.TestCase):
 
     def test_batch_critic_log_resume_does_not_duplicate_attempts(self):
         with tempfile.TemporaryDirectory() as temp:
-            result = dict(config={"pipeline_version": 2}, sample_id="dev1", signature="sig",
+            result = dict(config={"pipeline_mode": "proposed"}, sample_id="dev1", signature="sig",
                           critique_history=[dict(attempt=1, retries=0, final_decision="FAIL")],
                           trace=dict(selected_attempt=1, outcome="exhausted_retries"))
             update_critic_log(temp, result)

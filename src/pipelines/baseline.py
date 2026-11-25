@@ -1,6 +1,6 @@
-# Phạm vi: Chỉ V1: SD1.5 inpaint một lượt với prompt cố định. Không nạp Pix2Gestalt, Qwen, CLIP
+# Phạm vi: Chỉ Baseline: SD1.5 inpaint một lượt với prompt cố định. Không nạp Pix2Gestalt, Qwen, CLIP
 # hay adapter.
-"""Single-pass inpainting with a fixed prompt and pixel-exact visible preservation."""
+"""Single-pass inpainting with a fixed prompt and direct decoder output."""
 from __future__ import annotations
 
 import json
@@ -12,8 +12,8 @@ from PIL import Image
 
 from src.models.sd15_ip_adapter import SD15_INPAINTING
 from src.stages.inpaint_refiner import run_inpaint_roi_pass
-from src.vlm.qwen_basic import DEFAULT_NEGATIVE_PROMPT
-from src.vision.compositing import adaptive_seam_blend, finalize_rgba
+from src.vlm.prompt_inputs import DEFAULT_NEGATIVE_PROMPT
+from src.vision.compositing import finalize_rgba
 from src.vision.image_ops import binary_dilate, binary_erode
 from src.vision.roi import mask_bbox
 
@@ -50,13 +50,14 @@ def prepare_direct_inputs(image, visible_mask, occluded_mask):
 
 
 # Chứa thao tác inpaint một lượt và lưu thông số, không gọi critic.
-class DirectInpaintCompleter:
-    baseline_name = "Direct inpainting"
-    settings_filename = "inpaint_settings.json"
-    timing_key = "inpaint_seconds"
+class Baseline:
+    baseline_name = "SD1.5 Direct"
+    settings_filename = "sd15_settings.json"
+    timing_key = "sd15_seconds"
 
     # Đọc và kiểm tra prompt cố định, strength, guidance và số bước.
     def __init__(self, models, config):
+        validate_sd15_direct(config)
         self.models, self.config = models, config
         if config.get("text_query_policy", "empty") != "empty" or config.get("enable_critic", False):
             raise ValueError(f"{self.baseline_name} uses a fixed prompt and no critic")
@@ -69,7 +70,7 @@ class DirectInpaintCompleter:
         if not 0.16 <= self.strength <= 1 or self.steps < 1 or self.guidance < 0:
             raise ValueError("Invalid direct inpainting settings")
 
-    # Sinh RGB từ seed; bước hoàn tất của V1 ghép lại đúng pixel nhìn thấy.
+    # Giữ toàn bộ RGB do bộ giải mã sinh trong ROI.
     def complete(self, image, visible_mask, occluded_mask, job_dir=None):
         if occluded_mask is None:
             raise ValueError(f"{self.baseline_name} requires an input hidden mask")
@@ -87,72 +88,34 @@ class DirectInpaintCompleter:
             Image.fromarray(inpaint_region.astype(np.uint8) * 255).save(job / "inpainting_mask.png")
             (job / "prompt_01.txt").write_text(self.prompt, encoding="utf-8")
             (job / self.settings_filename).write_text(json.dumps(settings, indent=2), encoding="utf-8")
-        model_load_seconds, inference_seconds = 0.0, 0.0
-        if occ.any():
-            load_started = time.perf_counter()
-            pipe = self.models.pipe  # The only model this baseline activates.
-            model_load_seconds = time.perf_counter() - load_started
-            print(f"[{self.baseline_name}] One pass, ROI={roi['size']}, steps={self.steps}, strength={self.strength}", flush=True)
-            inference_started = time.perf_counter()
-            generated = run_inpaint_roi_pass(
-                pipe=pipe, device=self.models.device, seed_canvas=canvas,
-                inpaint_region=inpaint_region, roi=roi, prompt=self.prompt,
-                negative_prompt=negative, strength=self.strength, guidance_scale=self.guidance,
-                num_inference_steps=self.steps, seed=seed,
-            )
-            inference_seconds = time.perf_counter() - inference_started
-            # Match oracle compositing: only copy synthesized hidden pixels into
-            # the seed, then call the shared seam/alpha code. No frequency locking.
-            completed = canvas.copy()
-            completed[occ] = generated[occ]
-        else:
-            completed = canvas.copy()
-        rgb = adaptive_seam_blend(image, completed, vis, amodal)
-        rgba = finalize_rgba(rgb, amodal, *image.shape[:2])
+        load_started = time.perf_counter()
+        pipe = self.models.pipe  # The only model this baseline activates.
+        model_load_seconds = time.perf_counter() - load_started
+        print(f"[{self.baseline_name}] One pass, ROI={roi['size']}, steps={self.steps}, strength={self.strength}", flush=True)
+        inference_started = time.perf_counter()
+        completed = run_inpaint_roi_pass(
+            pipe=pipe, device=self.models.device, seed_canvas=canvas,
+            inpaint_region=inpaint_region, roi=roi, prompt=self.prompt,
+            negative_prompt=negative, strength=self.strength, guidance_scale=self.guidance,
+            num_inference_steps=self.steps, seed=seed,
+        )
+        inference_seconds = time.perf_counter() - inference_started
+        rgba = finalize_rgba(completed, amodal, *image.shape[:2])
         if job_dir is not None:
             Image.fromarray(completed).save(job / "inpainting_01.png")
         return dict(inpainted_rgba=rgba, amodal_mask=amodal, final_score=None, critique_history=[],
                     _trace=dict(backend=f"{self.baseline_name} (fixed prompt, input hidden mask)", pad_info={},
-                                synthesis_attempts=int(occ.any()), settings=settings,
+                                refinement_scheduler="DDIMScheduler", synthesis_attempts=1, settings=settings,
                                 model_load_seconds=round(model_load_seconds, 3),
                                 **{self.timing_key: round(inference_seconds, 3)},
                                 total_seconds=round(time.perf_counter() - started, 3)))
 
 
-# Bảo đảm baseline dùng đúng SD1.5/DDIM và không bật các cải tiến của V2/V3.
+# Bảo đảm baseline dùng đúng SD1.5/DDIM và không bật các cải tiến của proposed.
 def validate_sd15_direct(config):
     if config.get("inpainting_model_id") != SD15_INPAINTING or config.get("refinement_scheduler") != "ddim":
-        raise ValueError("SD1.5 Direct requires the SD1.5 inpainting checkpoint and DDIM, matching V2")
+        raise ValueError("SD1.5 Direct requires the SD1.5 inpainting checkpoint and DDIM, matching Proposed")
     if config.get("enable_critic") or config.get("text_query_policy", "empty") != "empty":
         raise ValueError("SD1.5 Direct requires a fixed category-free prompt and no critic")
-    if any(config.get(key) for key in ("use_micro_attributes", "use_ip_adapter", "use_latent_blending")):
+    if any(config.get(key) for key in ("use_micro_attributes", "use_ip_adapter", "use_latent_blending", "use_strict_critic")):
         raise ValueError("SD1.5 Direct cannot enable extra conditioning features")
-
-
-# Đặt cấu hình riêng và tên log cho baseline SD1.5.
-class SD15DirectCompleter(DirectInpaintCompleter):
-    baseline_name = "SD1.5 Direct"
-    settings_filename = "sd15_settings.json"
-    timing_key = "sd15_seconds"
-
-    # Xác nhận giới hạn của SD1.5 Direct trước khi khởi tạo lớp dùng chung.
-    def __init__(self, models, config):
-        validate_sd15_direct(config)
-        super().__init__(models, config)
-
-    # Giữ kết quả chung và thêm định danh scheduler vào trace.
-    def complete(self, *args, **kwargs):
-        result = super().complete(*args, **kwargs)
-        result["_trace"]["refinement_scheduler"] = "DDIMScheduler"
-        return result
-
-
-# Hoàn tất ảnh baseline và ghi phiên bản vào trace.
-class V1Direct(SD15DirectCompleter):
-    # Chép lại đúng RGB visible sau khi ghép biên, để so sánh trên vùng quan sát.
-    def complete(self, image, visible_mask, occluded_mask, job_dir=None):
-        result = super().complete(image, visible_mask, occluded_mask, job_dir=job_dir)
-        visible = np.asarray(visible_mask, dtype=bool)
-        result["inpainted_rgba"][visible, :3] = image[visible]
-        result["_trace"]["pipeline_version"] = 1
-        return result

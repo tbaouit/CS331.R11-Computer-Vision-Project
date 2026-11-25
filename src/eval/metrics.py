@@ -1,4 +1,4 @@
-# Phạm vi: Cả ba phiên bản: IoU kiểm tra mask; SeamMAE và histogram màu chẩn đoán mối nối giữa
+# Phạm vi: Cả hai phiên bản: IoU kiểm tra mask; SeamMAE và histogram màu chẩn đoán mối nối giữa
 # phần thấy và phần sinh.
 """Geometric IoU and reference-free appearance coherence metrics."""
 from __future__ import annotations
@@ -17,7 +17,6 @@ def iou(predicted: np.ndarray, target: np.ndarray) -> Optional[float]:
 
 # Đo mức chênh ở dải pixel tiếp giáp và độ giống phân bố màu. Không cần RGB thật vùng khuất.
 def compute_appearance_coherence_metrics(
-    image: np.ndarray,
     visible_mask: np.ndarray,
     occluded_mask: np.ndarray,
     completed_rgb: np.ndarray,
@@ -29,11 +28,11 @@ def compute_appearance_coherence_metrics(
         return {"seam_mae": 0.0, "color_hist_sim": 1.0}
 
     # 1. Local Seam Continuity MAE: compare 2-px occluded ring right across the boundary
-    #    against each pixel's nearest visible neighbor in `image[vis]`.
+    #    against each pixel's nearest visible neighbor in `completed_rgb[vis]`.
     occ_seam_ring = occ & binary_dilate(vis, 2)
     if occ_seam_ring.any():
-        vis_canvas = np.zeros_like(image, dtype=np.uint8)
-        vis_canvas[vis] = image[vis]
+        vis_canvas = np.zeros_like(completed_rgb, dtype=np.uint8)
+        vis_canvas[vis] = completed_rgb[vis]
         nearest_vis_rgb = nearest_foreground_fill(vis_canvas, vis)
         seam_mae = float(
             np.abs(completed_rgb[occ_seam_ring].astype(np.float32) - nearest_vis_rgb[occ_seam_ring].astype(np.float32)).mean()
@@ -42,7 +41,7 @@ def compute_appearance_coherence_metrics(
         seam_mae = 0.0
 
     # 2. Per-channel 16-bin normalized histogram intersection between visible & reconstructed occluded RGB.
-    vis_px = image[vis]
+    vis_px = completed_rgb[vis]
     occ_px = completed_rgb[occ]
     intersections = []
     bins = np.linspace(0.0, 256.0, 17)

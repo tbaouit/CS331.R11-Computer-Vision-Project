@@ -1,4 +1,4 @@
-# Phạm vi: Cả ba phiên bản: preflight ảnh và mask trên CPU trước khi nạp trọng số.
+# Phạm vi: Cả hai phiên bản: preflight ảnh và mask trên CPU trước khi nạp trọng số.
 """Read-only validation of prepared samples before expensive GPU inference."""
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-# Phạm vi: Ô 8, tùy chọn: FID trên phân bố crop vật thể, cần bộ ảnh sạch bên ngoài. Không có RGB
+# Phạm vi: Ô 7, tùy chọn: FID trên phân bố crop vật thể, cần bộ ảnh sạch bên ngoài. Không có RGB
 # ground truth vùng ẩn trong COCO-A.
 """Distribution-level FID against a separate set of clean object crops."""
 from hashlib import sha256

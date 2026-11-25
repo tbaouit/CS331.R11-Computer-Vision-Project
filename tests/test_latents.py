@@ -13,7 +13,7 @@ class LatentCallbackTests(unittest.TestCase):
         import torch
         from PIL import Image
         from diffusers import AutoencoderKL, DDIMScheduler, StableDiffusionInpaintPipeline, UNet2DConditionModel
-        from src.models.sd15_ip_adapter import AdvancedInpaintPass, configure_v2_pipe
+        from src.models.sd15_ip_adapter import AdvancedInpaintPass, configure_proposed_pipe
         import json
         from pathlib import Path
 
@@ -32,9 +32,9 @@ class LatentCallbackTests(unittest.TestCase):
             text_encoder=None, tokenizer=None, safety_checker=None, feature_extractor=None,
             requires_safety_checker=False).to("cpu")
         pipe.set_progress_bar_config(disable=True)
-        cfg = json.loads((Path(__file__).resolve().parents[1] / "configs/v3_sd15_proposed.json").read_text())
+        cfg = json.loads((Path(__file__).resolve().parents[1] / "configs/proposed.json").read_text())
         cfg["use_ip_adapter"] = False  # no checkpoint download in a unit test
-        configure_v2_pipe(pipe, cfg)
+        configure_proposed_pipe(pipe, cfg)
         canvas = Image.new("RGB", (32, 32), (120, 90, 60))
         mask = np.zeros((32, 32), np.uint8)
         mask[8:24, 8:24] = 255

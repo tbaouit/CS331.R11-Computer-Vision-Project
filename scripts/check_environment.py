@@ -54,7 +54,7 @@ def main():
     if args.check_access:
         from huggingface_hub import hf_hub_download
 
-        cfg = json.loads((ROOT / "configs/v3_sd15_proposed.json").read_text(encoding="utf-8"))
+        cfg = json.loads((ROOT / "configs/proposed.json").read_text(encoding="utf-8"))
         for model, name in [
             ("Qwen/Qwen3-VL-4B-Instruct", "config.json"),
             (cfg["inpainting_model_id"], "model_index.json"),

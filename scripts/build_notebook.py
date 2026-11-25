@@ -1,6 +1,6 @@
-# Phạm vi: Sinh notebook Colab từ mẫu 8 ô. Thay đổi hướng dẫn hoặc code notebook ở đây rồi sinh
+# Phạm vi: Sinh notebook Colab từ mẫu 7 ô. Thay đổi hướng dẫn hoặc code notebook ở đây rồi sinh
 # lại notebook.
-"""Generate the runnable notebook with eight cells for generation, resume and evaluation."""
+"""Generate the runnable notebook with seven cells for generation, resume and evaluation."""
 import json
 from pathlib import Path
 
@@ -10,7 +10,7 @@ CELLS = [
 import subprocess, sys, os, shutil, zipfile, json, base64, re
 from pathlib import Path
 # Dùng cùng tên qua các phiên để tìm lại kết quả trên Drive.
-RUN_NAME = "sd15"
+RUN_NAME = "sd15_decoded"
 EVALUATION_ONLY = False  # True nếu phiên này chỉ để đánh giá ảnh đã sinh.
 os.environ["MPLBACKEND"] = "Agg"
 def sh(*cmd, extra_env=None):
@@ -121,7 +121,7 @@ print("Free GiB:", round(shutil.disk_usage(PROJECT).free / 1024**3, 1))
 if EVALUATION_ONLY:
     sh(sys.executable, "scripts/setup_colab.py", "--evaluation-only")
 else:
-    PRELOAD_GENERATION_WEIGHTS = True  # Có thể đặt False nếu phiên này chỉ chạy V1.
+    PRELOAD_GENERATION_WEIGHTS = True  # Có thể đặt False nếu phiên này chỉ chạy Baseline.
     setup_flags = [] if PRELOAD_GENERATION_WEIGHTS else ["--skip-downloads"]
     sh(sys.executable, "scripts/setup_colab.py", *setup_flags)
     sh(PYTHON, "-m", "unittest", "discover", "-s", "tests", "-v")
@@ -142,8 +142,7 @@ extra = ["--allow-test"] if BATCH == "test400" else []
 DATA_RUN = EXPERIMENT / f"{BATCH}_{N}"
 RUNS_ROOT = DATA_RUN / "runs"
 saved_manifest = DATA_RUN / "manifest.json"
-configs = dict(v1="v1_sd15_direct", v2="v2_sd15_pipeline",
-               v3="v3_sd15_proposed")
+configs = ("baseline", "proposed")
 
 if EVALUATION_ONLY:
     manifest = saved_manifest
@@ -164,7 +163,7 @@ else:
         manifest = manifest.with_name(f"first_{N}.json")
         save_json(manifest, records)
     sh(PYTHON, "scripts/run_experiment.py", "--manifest", manifest, "--limit", N,
-       "--config", "configs/v1_sd15_direct.json", "--validate-only", *extra)
+       "--config", "configs/baseline.json", "--validate-only", *extra)
     if saved_manifest.is_file():
         if records != json.loads(saved_manifest.read_text(encoding="utf-8")):
             raise ValueError("Danh sách mẫu đã đổi. Dùng lại dataset gốc hoặc đặt RUN_NAME mới ở ô 1.")
@@ -174,12 +173,12 @@ else:
 def marker(role):
     return DATA_RUN / "profiles" / f"{role}.json"
 
-def run_version(role, config=None):
+def run_version(role):
     if EVALUATION_ONLY:
-        raise RuntimeError("Phiên này chỉ đánh giá; bỏ qua ô 5–7.")
-    config = config or f"configs/{configs[role]}.json"
+        raise RuntimeError("Phiên này chỉ đánh giá; bỏ qua ô 5–6.")
+    config = f"configs/{role}.json"
     sh(PYTHON, "scripts/run_experiment.py", "--manifest", manifest, "--limit", N,
-       "--config", config, "--runs-root", RUNS_ROOT,
+       "--config", config, "--runs-root", RUNS_ROOT / role,
        "--profile-state", marker(role), *extra)
 
 print("Batch trên Drive:", DATA_RUN)
@@ -187,29 +186,18 @@ for role in configs:
     state = json.loads(marker(role).read_text(encoding="utf-8")) if marker(role).is_file() else {}
     print(role, state.get("status", "chưa chạy"), state.get("profile", ""))
 ''',
-'''# 5. Chạy V1: SD1.5 Direct
-run_version("v1")
+'''# 5. Chạy Baseline: SD1.5 Direct
+run_version("baseline")
 ''',
-'''# 6. Chạy V2: pipeline vòng kín cơ bản
-run_version("v2")
+'''# 6. Chạy proposed
+run_version("proposed")
 ''',
-'''# 7. Chạy V3 và tùy chọn ablation
-RUN_NO_IP_ABLATION = False
-run_version("v3")
-if RUN_NO_IP_ABLATION:
-    ablation_path = marker("v3_no_ip").with_name("v3_no_ip_config.json")
-    ablation_path.parent.mkdir(parents=True, exist_ok=True)
-    proposed = json.loads((PROJECT / "configs/v3_sd15_proposed.json").read_text(encoding="utf-8"))
-    save_json(ablation_path, dict(proposed, use_ip_adapter=False))
-    run_version("v3_no_ip", ablation_path)
-''',
-'''# 8. Đánh giá, so sánh và lưu báo cáo
+'''# 7. Đánh giá, so sánh và lưu báo cáo
 from PIL import Image
 from IPython.display import display
 FID_REFERENCE = None  # For test400, set to a Drive folder of >=400 clean object crops.
-EVALUATE_ABLATION = False  # True nếu muốn chấm thêm V3 no IP đã chạy xong.
 import hashlib
-roles = ["v1", "v2", "v3"] + (["v3_no_ip"] if EVALUATE_ABLATION else [])
+roles = configs
 profiles, pending = {}, []
 saved_records = json.loads(saved_manifest.read_text(encoding="utf-8"))
 manifest_sha = hashlib.sha256(json.dumps(saved_records, sort_keys=True).encode()).hexdigest()
@@ -219,27 +207,27 @@ for role in roles:
     if (state.get("status") != "completed" or state.get("requested") != N
             or state.get("manifest_sha256") != manifest_sha
             or not re.fullmatch(r"[a-f0-9]{16}", profile)
-            or not (RUNS_ROOT / profile).is_dir()):
+            or not (RUNS_ROOT / role / profile).is_dir()):
         pending.append(role)
     else:
         profiles[role] = profile
 if pending:
     raise RuntimeError("Chưa có kết quả hoàn chỉnh cho: " + ", ".join(pending)
                        + ". Chạy ô sinh ảnh tương ứng hoặc kiểm tra RUN_NAME/BATCH.")
-for profile in profiles.values():
-    # Score và sidecar cũng nằm trên Drive; chạy lại ô 8 sẽ dùng lại điểm đã chấm.
+for role, profile in profiles.items():
+    # Score và sidecar cũng nằm trên Drive; chạy lại ô 7 sẽ dùng lại điểm đã chấm.
     sh(PYTHON, "scripts/evaluate_runs.py", "--profile", profile, "--manifest", saved_manifest,
-       "--device", "cuda", "--runs-root", RUNS_ROOT)
+       "--device", "cuda", "--runs-root", RUNS_ROOT / role)
 output = PROJECT / "outputs" / "comparisons" / (
     f"{BATCH}_{N}_" + "_".join(profiles.values()))
 args = [arg for role, profile in profiles.items()
-        for arg in ("--" + role.replace("_", "-"), RUNS_ROOT / profile)]
+        for arg in ("--" + role.replace("_", "-"), RUNS_ROOT / role / profile)]
 fid_args = ["--fid-reference", FID_REFERENCE] if FID_REFERENCE else []
 sh(PYTHON, "scripts/compare_versions.py", "--manifest", saved_manifest, "--output", output, *args, *fid_args)
 report = json.loads((output / "comparison.json").read_text(encoding="utf-8"))
 for role in roles:
     relevant = {k: v["mean"] for k, v in report["metrics"][role].items()
-                if k in ("CLIP_score", "seam_mae", "color_hist_sim")}
+                if k in ("CLIP_score", "SSIM", "LPIPS", "Feature_Similarity", "seam_mae", "color_hist_sim")}
     print(role, relevant, "critic:", report["critic"][role])
 if report["fid"]:
     print("FID:", report["fid"])

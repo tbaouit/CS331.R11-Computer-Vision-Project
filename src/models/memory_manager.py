@@ -1,4 +1,4 @@
-# Phạm vi: Cả ba phiên bản dùng bộ quản lý model này. V1 chỉ lấy SD1.5; V2/V3 thêm prior, Qwen và
+# Phạm vi: Cả hai phiên bản dùng bộ quản lý model này. Baseline chỉ lấy SD1.5; proposed thêm prior, Qwen và
 # CLIP.
 """Cache models in host RAM and keep only the active generation stage on CUDA."""
 from __future__ import annotations
@@ -64,8 +64,8 @@ class FoundationModels:
             pipe.set_progress_bar_config(disable=True)
             pipe.enable_vae_slicing()
             if self.advanced_config is not None:
-                from src.models.sd15_ip_adapter import configure_v2_pipe
-                configure_v2_pipe(pipe, self.advanced_config)
+                from src.models.sd15_ip_adapter import configure_proposed_pipe
+                configure_proposed_pipe(pipe, self.advanced_config)
             elif self.refinement_scheduler == "ddim":
                 from src.models.sd15_ip_adapter import configure_ddim
                 configure_ddim(pipe)
@@ -98,22 +98,22 @@ class FoundationModels:
         print(f"[Models] {name} ready on {self.device}.", flush=True)
         return model
 
-    # Trả Pix2Gestalt cho bước tạo prior của V2/V3.
+    # Trả Pix2Gestalt cho bước tạo prior của proposed.
     @property
     def shape_predictor(self):
         return self._activate("shape")
 
-    # Trả Qwen dùng cho bước suy luận và critic ở V2/V3.
+    # Trả Qwen dùng cho bước suy luận và critic ở proposed.
     @property
     def vlm(self):
         return self._activate("vlm")
 
-    # Trả SD1.5 inpainting dùng cho cả ba phiên bản.
+    # Trả SD1.5 inpainting dùng cho cả hai phiên bản.
     @property
     def pipe(self):
         return self._activate("inpainting")
 
-    # Trả encoder kiểm tra prompt của V2/V3.
+    # Trả encoder kiểm tra prompt của proposed.
     @property
     def clip_model(self):
         return self._activate("clip")

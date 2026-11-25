@@ -19,7 +19,7 @@ from scripts.run_experiment import mark_profile_state
 class DriveSessionTests(unittest.TestCase):
     def test_reject_changed_profile_or_manifest_without_overwriting_progress(self):
         with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "profiles" / "v1.json"
+            path = Path(temp) / "profiles" / "baseline.json"
             state = {"profile": "a" * 16, "requested": 400, "manifest_sha256": "b" * 64}
             mark_profile_state(path, state, "running")
             original = path.read_bytes()
@@ -41,7 +41,7 @@ class DriveSessionTests(unittest.TestCase):
             manifest = batch / "manifest.json"
             manifest.write_text(json.dumps(records), encoding="utf-8")
             digest = hashlib.sha256(json.dumps(records, sort_keys=True).encode()).hexdigest()
-            roles = dict(v1="a" * 16, v2="b" * 16, v3="c" * 16)
+            roles = dict(baseline="a" * 16, proposed="c" * 16)
             calls = []
 
             def sh(*args):
@@ -59,22 +59,22 @@ class DriveSessionTests(unittest.TestCase):
             exec(CELLS[3], env)
             self.assertEqual(calls, [])  # No dataset prep, no generation, no local state required.
             for role, profile in roles.items():
-                (runs / profile).mkdir()
+                (runs / role / profile).mkdir(parents=True)
                 mark_profile_state(batch / "profiles" / f"{role}.json",
                                    dict(profile=profile, requested=50, manifest_sha256=digest),
-                                   "running" if role == "v3" else "completed")
+                                   "running" if role == "proposed" else "completed")
             with patch.dict(sys.modules, {"IPython.display": SimpleNamespace(display=lambda _: None)}):
-                with self.assertRaisesRegex(RuntimeError, "Chưa có kết quả hoàn chỉnh cho: v3"):
-                    exec(CELLS[7], env)
+                with self.assertRaisesRegex(RuntimeError, "Chưa có kết quả hoàn chỉnh cho: proposed"):
+                    exec(CELLS[6], env)
                 self.assertEqual(calls, [])
-                mark_profile_state(batch / "profiles/v3.json",
-                                   dict(profile=roles["v3"], requested=50, manifest_sha256=digest),
+                mark_profile_state(batch / "profiles/proposed.json",
+                                   dict(profile=roles["proposed"], requested=50, manifest_sha256=digest),
                                    "completed")
-                exec(CELLS[7], env)
-            self.assertEqual(len(calls), 4)
-            for args, profile in zip(calls[:3], roles.values()):
+                exec(CELLS[6], env)
+            self.assertEqual(len(calls), 3)
+            for args, (role, profile) in zip(calls[:2], roles.items()):
                 self.assertEqual(args[1], "scripts/evaluate_runs.py")
                 self.assertEqual(args[args.index("--profile") + 1], profile)
-                self.assertEqual(args[args.index("--runs-root") + 1], runs)
+                self.assertEqual(args[args.index("--runs-root") + 1], runs / role)
                 self.assertEqual(args[args.index("--manifest") + 1], manifest)
             self.assertEqual(len(list((batch / "comparisons").glob("*.zip"))), 1)

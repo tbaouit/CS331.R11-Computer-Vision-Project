@@ -1,4 +1,4 @@
-# Phạm vi: V3: giao tiếp Qwen bằng ảnh và text, kiểm tra JSON và lưu phản hồi thô nếu cần sửa định
+# Phạm vi: Proposed: giao tiếp Qwen bằng ảnh và text, kiểm tra JSON và lưu phản hồi thô nếu cần sửa định
 # dạng.
 """Shared Qwen JSON generation and parsing."""
 import json

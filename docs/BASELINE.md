@@ -1,7 +1,5 @@
-# V1 Direct
+# Baseline
 
-`configs/v1_sd15_direct.json` nhận ảnh, visible mask và hidden mask đã cho.
-SD1.5 Inpainting chạy một lượt, DDIM, seed 42, guidance 7, 28 bước, strength 1.
-Câu lệnh mô tả một vật thể tổng quát, không lấy nhãn COCO-A. Đầu ra ghép chính
-xác pixel nhìn thấy từ ảnh gốc. Ô 5 chạy baseline, ô 8 so với V2 và V3 trên
-cùng manifest. Không dùng profile lịch sử thay thế trong phép so sánh này.
+SD 1.5 nhận ROI 512 × 512 chứa RGB nhìn thấy, vùng khuất tô xám và nền trắng. Prompt cố định dùng chung cho mọi vật thể. Cấu hình mặc định chạy DDIM 28 bước, guidance 7, strength 1 và seed 42. Sau khi đưa toàn bộ ROI đã giải mã về tọa độ gốc, pipeline gắn mask amodal làm alpha.
+
+![Workflow baseline](figures/workflow-baseline.svg)

@@ -1,4 +1,4 @@
-# Phạm vi: Cả V1/V2/V3: chuyển annotation COCO-A thành danh sách vật thể cùng ảnh và ba mask.
+# Phạm vi: Cả haiseline và proposed: chuyển annotation COCO-A thành danh sách vật thể cùng ảnh và ba mask.
 # Không sinh RGB hoặc nạp GPU.
 """COCO-A image annotations -> individual objects. No GPU/model dependencies."""
 from dataclasses import dataclass

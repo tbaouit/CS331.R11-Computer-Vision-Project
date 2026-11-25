@@ -1,4 +1,4 @@
-# Phạm vi: V2/V3: nạp processor và checkpoint Qwen3-VL cho cả bước mô tả lẫn critic.
+# Phạm vi: proposed: nạp processor và checkpoint Qwen3-VL cho cả bước mô tả lẫn critic.
 """Qwen3-VL vision-language model loader (used for semantic reasoning and target-aware critique)."""
 from __future__ import annotations
 

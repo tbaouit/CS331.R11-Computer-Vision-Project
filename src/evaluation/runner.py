@@ -1,4 +1,4 @@
-# Phạm vi: Cả ba phiên bản: đọc một mẫu, kiểm tra khả năng resume, gọi backend, lưu ảnh RGBA,
+# Phạm vi: Cả hai phiên bản: đọc một mẫu, kiểm tra khả năng resume, gọi backend, lưu ảnh RGBA,
 # mask, trace và checksum.
 """CPU-side run management, checksum resume verification, and sample evaluation."""
 from __future__ import annotations
@@ -68,9 +68,9 @@ def resolve_sample(base, value):
     return path
 
 
-# Xác định đường truyền mask ẩn từ config; cả ba config chính đều bật.
+# Xác định đường truyền mask ẩn từ config; cả hai config chính đều bật.
 def _uses_occluded_mask_input(config):
-    return config.get("pipeline_mode") in ("oracle_mask", "sd15_direct") or bool(config.get("use_occluded_mask_input"))
+    return config.get("pipeline_mode") in ("proposed", "baseline") or bool(config.get("use_occluded_mask_input"))
 
 
 # Nối dữ liệu và backend cho một vật thể; trả kết quả và cờ cho biết có dùng lại artefact hay
@@ -157,7 +157,6 @@ def run_one(record, sample_root, output_root, config, backend, profile):
             amodal_iou=iou(amodal, gt),
             hidden_iou=iou(hidden, gt_hidden),
             visible_mae=float(np.abs(rgba[:, :, :3][visible].astype(float) - image[visible]).mean()),
-            visible_exact_fraction=float(np.all(rgba[:, :, :3][visible] == image[visible], axis=1).mean()),
         )
         if config.get("appearance_metrics"):
             from src.eval.appearance_metrics import compute_visible_appearance_metrics
@@ -199,9 +198,9 @@ def run_one(record, sample_root, output_root, config, backend, profile):
         ]
         if oracle_mode:
             artifacts.append("occluded_input.png")
-        if config.get("pipeline_version") in (2, 3):
-            artifacts += [name for name in ("micro_attributes.json", "basic_reasoning.json", "critic_logs.jsonl",
-                                         f"v{config['pipeline_version']}_selection.json")
+        if config.get("pipeline_mode") == "proposed":
+            artifacts += [name for name in ("micro_attributes.json", "critic_logs.jsonl",
+                                         "proposed_selection.json")
                           if (job / name).is_file()]
         # Checksum cho bước resume và chấm lại; result.json được ghi sau ảnh và trace.
         result["artifact_sha256"] = {name: sha(job / name) for name in artifacts}

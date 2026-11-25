@@ -1,4 +1,4 @@
-# Phạm vi: Cả ba phiên bản: ghi JSON/CSV và thống kê theo lớp và mức che; mẫu thiếu hoặc lỗi không
+# Phạm vi: Cả hai phiên bản: ghi JSON/CSV và thống kê theo lớp và mức che; mẫu thiếu hoặc lỗi không
 # bị tính thành điểm 0.
 """Atomic JSON and per-object macro summaries; missing scores never become zeros."""
 from __future__ import annotations
@@ -48,7 +48,7 @@ def write_reports(directory, rows, metadata=None):
     write_json(directory / "aggregate.json", report)
     metric_names = sorted({k for r in rows for k in r.get("metrics", {})})
     fields = ["sample_id", "category", "hidden_ratio", "occlusion_bin", "status", "error",
-              "visible_canvas_fraction", "visible_exact_fraction"] + metric_names
+              "visible_canvas_fraction"] + metric_names
     partial = directory / "metrics.csv.part"
     with partial.open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)

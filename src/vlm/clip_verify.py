@@ -1,4 +1,4 @@
-# Phạm vi: V2/V3: CLIP đối chiếu các prompt với crop vật thể nhìn thấy; đây là lựa chọn prompt,
+# Phạm vi: proposed: CLIP đối chiếu các prompt với crop vật thể nhìn thấy; đây là lựa chọn prompt,
 # không phải metric CLIP cuối.
 """Verify text guidance against the observed object crop."""
 from __future__ import annotations
@@ -33,7 +33,7 @@ def verify_prompt_with_clip(
 ) -> tuple[str, dict]:
     """Verify VLM prompt alignment against isolated visible pixels using shared CLIP."""
     import torch
-    from src.vlm.qwen_basic import truncate_tokens_clean
+    from src.vlm.prompt_inputs import truncate_tokens_clean
 
     clip_tok = clip_proc.tokenizer
     qwen_prompt = truncate_tokens_clean(parsed_vlm["sd_prompt"], clip_tok, max_tokens=65)

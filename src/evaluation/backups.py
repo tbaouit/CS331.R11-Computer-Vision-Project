@@ -1,4 +1,4 @@
-# Phạm vi: Cả ba phiên bản: khôi phục artefact từ ZIP của từng profile để có thể tiếp tục sau khi
+# Phạm vi: Cả hai phiên bản: khôi phục artefact từ ZIP của từng profile để có thể tiếp tục sau khi
 # Colab ngắt.
 """Restore missing experiment artifacts from explicit Drive backups."""
 from __future__ import annotations

@@ -1,12 +1,9 @@
-# Phạm vi: Cả ba dùng hàm inpaint trong ROI; V2/V3 dùng thêm nhánh tinh chỉnh dựa trên prior và
-# khóa màu.
-"""512x512 ROI inpainting refinement stages with frequency-separated color locking."""
+"""Inpaint a square ROI and project its decoded RGB back onto the canvas."""
 from __future__ import annotations
 
 import numpy as np
 from PIL import Image
 
-from src.vision.compositing import lock_low_frequency_to_prior
 from src.vision.image_ops import binary_dilate, binary_erode
 from src.vision.roi import extract_square_roi, mask_bbox, paste_square_roi
 
@@ -56,47 +53,23 @@ def run_inpaint_roi_pass(
     return paste_square_roi(seed_canvas, out_roi_np, roi, resize_mode="linear")
 
 
-# Giảm viền trắng rò từ nền vào vùng khuất gần mép vật thể.
-def _suppress_outer_rim_white_bleed(
-    out: np.ndarray,
-    seed_canvas: np.ndarray,
-    missing: np.ndarray,
-    amodal: np.ndarray,
-    ref_p90_luma: float,
-) -> np.ndarray:
-    if ref_p90_luma < 212.0:
-        outer_rim = missing & (~binary_erode(amodal, 4))
-        out_f = out.astype(np.float32)
-        white_bleed = outer_rim & (out_f.min(axis=-1) >= 232.0) & ((out_f.max(axis=-1) - out_f.min(axis=-1)) <= 16.0)
-        if white_bleed.any():
-            out[white_bleed] = seed_canvas[white_bleed]
-    return out
-
-
-# V2/V3: chỉ chép RGB sinh vào vùng ẩn, với mức khóa màu khác nhau cho prior tốt và vùng prior
-# thiếu.
 def refine_exact_mask(
     pipe,
     device: str,
     seed_canvas: np.ndarray,
     visible_mask: np.ndarray,
     occluded_mask: np.ndarray,
-    unfilled_mask: np.ndarray,
     prompt: str,
     negative_prompt: str,
     strength: float,
     guidance_scale: float,
     num_inference_steps: int,
     seed: int,
-    ref_p90_luma: float,
 ) -> np.ndarray:
-    """High-density 512x512 ROI inpainting refinement inside exact `occluded_mask` with dual-zone lock."""
+    """Return the complete decoded ROI at its original coordinates."""
     vis = np.asarray(visible_mask, dtype=bool)
     occ = np.asarray(occluded_mask, dtype=bool) & (~vis)
     amodal = vis | occ
-    unfilled = np.asarray(unfilled_mask, dtype=bool) & occ
-    if not occ.any():
-        return seed_canvas.copy()
 
     ay1, ax1, ay2, ax2 = mask_bbox(amodal)
     ah, aw = ay2 - ay1 + 1, ax2 - ax1 + 1
@@ -113,7 +86,7 @@ def refine_exact_mask(
     if not inpaint_region.any():
         inpaint_region = occ.copy()
 
-    synthesized_full = run_inpaint_roi_pass(
+    return run_inpaint_roi_pass(
         pipe=pipe,
         device=device,
         seed_canvas=seed_canvas,
@@ -126,27 +99,3 @@ def refine_exact_mask(
         num_inference_steps=num_inference_steps,
         seed=seed,
     )
-
-    out = seed_canvas.copy()
-    out[occ] = synthesized_full[occ]
-
-    unfilled_zone = binary_dilate(unfilled, 3) & occ
-    valid_prior_zone = occ & (~unfilled_zone)
-    if valid_prior_zone.any():
-        out = lock_low_frequency_to_prior(
-            seed_rgb=seed_canvas,
-            sd_rgb=out,
-            lock_mask=valid_prior_zone,
-            max_low_shift=10.0,
-            high_gain=0.58,
-        )
-    if unfilled_zone.any():
-        out = lock_low_frequency_to_prior(
-            seed_rgb=seed_canvas,
-            sd_rgb=out,
-            lock_mask=unfilled_zone,
-            max_low_shift=26.0,
-            high_gain=0.90,
-        )
-
-    return _suppress_outer_rim_white_bleed(out, seed_canvas, occ, amodal, ref_p90_luma)

@@ -1,4 +1,4 @@
-# Phạm vi: Ô 8: chấm các ảnh đã lưu của một profile, có thể resume bằng JSON cùng thư mục
+# Phạm vi: Ô 7: chấm các ảnh đã lưu của một profile, có thể resume bằng JSON cùng thư mục
 # artefact.
 """Evaluate saved completions without rerunning generation (resumable sidecars)."""
 import argparse
@@ -82,15 +82,14 @@ def evaluate_profile(profile, records, device="cuda", continue_on_error=False, e
                         raise ValueError("Appearance evaluator returned missing or non-finite scores")
                     # Reference-free diagnostic on the actual reconstructed region, not hidden RGB accuracy.
                     hidden = amodal & ~visible
-                    coherence = compute_appearance_coherence_metrics(image, visible, hidden, output)
+                    coherence = compute_appearance_coherence_metrics(visible, hidden, output)
                     if not hidden.any():
                         coherence = dict(seam_mae=None, color_hist_sim=None)
                     elif not (hidden & binary_dilate(visible, 2)).any():
                         coherence["seam_mae"] = None
                     metrics.update(coherence)
                     row.update(status="completed", metrics=metrics,
-                               visible_canvas_fraction=float(visible.mean()),
-                               visible_exact_fraction=result.get("metrics", {}).get("visible_exact_fraction"))
+                               visible_canvas_fraction=float(visible.mean()))
                     write_json(sidecar, dict(signature=signature, status="completed", row=row, settings=settings))
         except Exception as error:
             row.pop("metrics", None)
@@ -129,9 +128,11 @@ def main():
         parser.error("--limit must be positive")
     profile = Path(args.profile) if Path(args.profile).is_absolute() else args.runs_root / args.profile
     if args.backup_dir:
-        auto_restore_drive_backups(args.runs_root, args.backup_dir, profiles={profile.name})
+        auto_restore_drive_backups(profile.parent, args.backup_dir, profiles={profile.name})
     if not profile.is_dir():
         raise FileNotFoundError(f"Unknown profile: {profile}")
+    from src.pipelines.backend import validate_experiment_config
+    validate_experiment_config(json.loads((profile / "config.json").read_text(encoding="utf-8")))
     records = json.loads(args.manifest.read_text(encoding="utf-8"))
     if args.limit is not None:
         records = records[:args.limit]

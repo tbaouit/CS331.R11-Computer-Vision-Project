@@ -1,4 +1,4 @@
-# Phạm vi: V1/V2/V3 dùng DDIM; V3 thêm ảnh tham chiếu qua IP-Adapter và callback trộn latent.
+# Phạm vi: baseline và proposed dùng DDIM; Proposed thêm ảnh tham chiếu qua IP-Adapter và callback trộn latent.
 """SD1.5 inpainting hooks for DDIM blending and optional IP-Adapter.
 
 Latent blending is restricted to DDIM, whose post-step noise level is explicit.
@@ -15,12 +15,10 @@ IP_ADAPTER_REPO = "h94/IP-Adapter"
 IP_ADAPTER_PLUS = "ip-adapter-plus_sd15.safetensors"
 
 
-# Kiểm tra backbone, cờ, ngưỡng và tham số chạy chung của V2/V3.
-def validate_v2_config(config):
-    if config.get("pipeline_version", 1) not in (2, 3):
-        raise ValueError("Expected pipeline_version 2 or 3")
-    if config.get("pipeline_mode") != "oracle_mask":
-        raise ValueError("V2 and V3 require the given-mask mode")
+# Kiểm tra backbone, cờ, ngưỡng và tham số chạy chung của proposed.
+def validate_proposed_config(config):
+    if config.get("pipeline_mode") != "proposed":
+        raise ValueError("Expected proposed config")
     if config.get("inpainting_model_id") != SD15_INPAINTING:
         raise ValueError("All experiments require the SD1.5 inpainting checkpoint")
     for key in ("use_micro_attributes", "use_ip_adapter", "use_latent_blending", "use_strict_critic", "enable_critic"):
@@ -30,7 +28,7 @@ def validate_v2_config(config):
     if type(attempts) is not int or not 1 <= attempts <= 10:
         raise ValueError("max_critic_iter counts TOTAL attempts and must be 1..10")
     if config.get("refinement_scheduler") != "ddim":
-        raise ValueError("V2 requires refinement_scheduler='ddim' (also for no-blending ablations)")
+        raise ValueError("Proposed requires refinement_scheduler='ddim'")
     for key, low, high in (("critique_threshold", 0, 10), ("ip_adapter_scale", 0, 1),
                            ("guidance_scale", 1, 9), ("retry_guidance_step", 0, 3)):
         value = config.get(key)
@@ -43,7 +41,7 @@ def validate_v2_config(config):
         raise ValueError("seed must be a nonnegative integer")
     if config.get("use_ip_adapter"):
         if config.get("ip_adapter_model_id") != IP_ADAPTER_REPO or config.get("ip_adapter_weight_name") != IP_ADAPTER_PLUS:
-            raise ValueError("V2 uses the official h94 IP-Adapter Plus SD1.5 safetensors checkpoint")
+            raise ValueError("Proposed uses the official h94 IP-Adapter Plus SD1.5 safetensors checkpoint")
 
 
 # Dùng cùng scheduler DDIM để phép so sánh không đổi lịch khử nhiễu giữa các phiên bản.
@@ -54,16 +52,16 @@ def configure_ddim(pipe):
     return pipe
 
 
-# Kiểm tra loại UNet, lắp DDIM và chỉ nạp IP-Adapter khi bật ở V3.
-def configure_v2_pipe(pipe, config):
+# Kiểm tra loại UNet, lắp DDIM và chỉ nạp IP-Adapter khi bật ở Proposed.
+def configure_proposed_pipe(pipe, config):
     """Called on CPU at initial load, before model residency management moves to CUDA."""
-    validate_v2_config(config)
+    validate_proposed_config(config)
     supported = inspect.signature(pipe.__call__).parameters
     if "callback_on_step_end" not in supported or "ip_adapter_image" not in supported:
         raise RuntimeError("Incompatible diffusers API; rerun Colab setup with requirements-colab.txt")
     if pipe.unet.config.in_channels != 9:
-        raise ValueError("V2 requires a dedicated 9-channel inpainting UNet")
-    # Hold scheduler constant in V2 ablations; preserve beta/prediction settings.
+        raise ValueError("Proposed requires a dedicated 9-channel inpainting UNet")
+    # Preserve the checkpoint beta schedule and prediction settings.
     configure_ddim(pipe)
     if config["use_ip_adapter"]:
         if pipe.unet.config.cross_attention_dim != 768:
@@ -89,7 +87,7 @@ def blend_latents(generated, reference, editable):
     return editable * generated + (1 - editable) * reference
 
 
-# Callback theo từng bước denoise của V3.
+# Callback theo từng bước denoise của Proposed.
 class ReferenceLatentBlender:
     # Giữ latent sạch, nhiễu cố định và mask ở độ phân giải latent.
     def __init__(self, clean_latents, noise, editable_mask):
@@ -134,9 +132,9 @@ def make_latent_blender(pipe, image, mask_image, device, seed):
     return ReferenceLatentBlender(clean, noise, editable)
 
 
-# Bọc một lượt chạy V3: đưa crop visible vào IP-Adapter và đăng ký callback latent khi có cờ.
+# Bọc một lượt chạy Proposed: đưa crop visible vào IP-Adapter và đăng ký callback latent khi có cờ.
 class AdvancedInpaintPass:
-    """Wrap a single V1 ROI pass to retain its cropping and frequency locks.
+    """Wrap a single Baseline ROI pass with image conditioning and latent blending.
 
     A wrapper is constructed per attempt. No callbacks or reference GPU tensors
     are retained by the model registry after a call.

@@ -1,4 +1,4 @@
-# Phạm vi: Ô 8: xác minh các kết quả được chấm từ đúng manifest và đúng ảnh/mask đã lưu trước khi
+# Phạm vi: Ô 7: xác minh các kết quả được chấm từ đúng manifest và đúng ảnh/mask đã lưu trước khi
 # ghép bảng.
 """Verify saved scores against job artifacts and the requested manifest."""
 import hashlib
