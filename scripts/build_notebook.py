@@ -10,7 +10,7 @@ CELLS = [
 import subprocess, sys, os, shutil, zipfile, json, base64, re
 from pathlib import Path
 # Dùng cùng tên qua các phiên để tìm lại kết quả trên Drive.
-RUN_NAME = "cocoa_named_sd15"
+RUN_NAME = "cocoa_embedded_sd15"
 EVALUATION_ONLY = False  # True nếu phiên này chỉ để đánh giá ảnh đã sinh.
 os.environ["MPLBACKEND"] = "Agg"
 def sh(*cmd, extra_env=None):
@@ -95,14 +95,11 @@ else:
     if str(PROJECT) not in sys.path:
         sys.path.insert(0, str(PROJECT))
     from scripts.mount_cocoa_zip import unpack
-    from scripts.merge_cocoa_annotations import merge
     archive = DRIVE / "cocoa.zip"
     dataset_root = unpack(archive, PROJECT / "dataset/named_cache")
-    annotation_file = DRIVE / "cocoa_annotations.json"
+    annotation_file = dataset_root / "cocoa_annotations.json"
     if not annotation_file.is_file():
-        annotation_file = dataset_root.parent / (dataset_root.name + ".json")
-        if not annotation_file.is_file():
-            save_json(annotation_file, merge(archive))
+        raise FileNotFoundError("Expected cocoa/cocoa_annotations.json inside cocoa.zip, beside dataset.json")
     data_key = dict(zip_sha256=dataset_root.name,
                     annotation_sha256=hashlib.sha256(annotation_file.read_bytes()).hexdigest())
     data_lock = EXPERIMENT / "dataset_identity.json"

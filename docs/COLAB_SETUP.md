@@ -1,8 +1,8 @@
 # Chạy COCO-A trên Colab
 
-Đặt `cocoa.zip` và `cocoa_annotations.json` cạnh nhau trong `MyDrive/CS331/`. Nếu chỉ có ZIP, notebook có thể tự gộp ba file annotation từ gói có `filename_mapping.csv`. Các tệp ảnh trong ZIP giữ hậu tố vật thể. Mã kiểm tra SHA-256 của gói và của annotation trước khi tiếp tục một đợt chạy.
+Upload `cocoa.zip` vào `MyDrive/CS331/`. Bên trong ZIP, đặt `cocoa/cocoa_annotations.json` cạnh `cocoa/dataset.json`, `filename_mapping.csv` và các thư mục split.
 
-1. Chạy ô 1–3 với `RUN_NAME = "cocoa_named_sd15"` cho đợt mới. Ô 2 giải nén vào bộ nhớ local của Colab.
+1. Chạy ô 1–3 với `RUN_NAME = "cocoa_embedded_sd15"` cho đợt mới. Ô 2 giải nén vào bộ nhớ local của Colab.
 2. Ở ô 4, chọn `BATCH = 10`, `BATCH = 50` hoặc `BATCH = "full"` (mặc định). Ô này xuất danh sách mẫu, kiểm tra mask và in số vật thể thực tế. Hai batch nhỏ là tiền tố của cùng danh sách xáo trộn với seed 42.
 3. Ô 5 sinh baseline, ô 6 sinh proposed. Có thể chạy ở hai phiên riêng. Sau khi ngắt, chạy lại ô 1–4 với cùng tên và cùng batch rồi chạy ô còn dang dở.
 4. Ô 7 đánh giá cả hai phương pháp từ kết quả lưu trên Drive. Để chỉ chấm trong phiên mới, đặt `EVALUATION_ONLY = True` ở ô 1, chạy ô 1–4 rồi ô 7.
