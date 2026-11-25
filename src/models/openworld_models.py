@@ -88,35 +88,37 @@ def _patch_transformers_legacy_compat() -> None:
 
 
 def _patch_groundingdino_deform_attn() -> None:
-    """Fallback `MultiScaleDeformableAttnFunction` to `multi_scale_deform_attn_core_pytorch` on GPU when `_C` is uncompiled."""
+    """Inject a pure-PyTorch GPU `_C.ms_deform_attn_forward` into `ms_deform_attn` when the C++ extension is uncompiled."""
     import importlib
+    import types
 
     for mod_name in (
         "GroundingDINO.groundingdino.models.GroundingDINO.ms_deform_attn",
         "groundingdino.models.GroundingDINO.ms_deform_attn",
     ):
         try:
-            mod = importlib.import_module(mod_name)
+            importlib.import_module(mod_name)
         except Exception:
+            pass
+
+    for mod in list(sys.modules.values()):
+        if mod is None or not hasattr(mod, "multi_scale_deform_attn_core_pytorch"):
             continue
-        if not hasattr(mod, "_C") and hasattr(mod, "MultiScaleDeformableAttnFunction") and hasattr(
-            mod, "multi_scale_deform_attn_core_pytorch"
-        ):
+        if getattr(mod, "_C", None) is None:
             core_fn = mod.multi_scale_deform_attn_core_pytorch
 
-            @staticmethod
-            def _fallback_forward(
-                ctx,
+            def _ms_deform_attn_forward(
                 value,
                 value_spatial_shapes,
                 value_level_start_index,
                 sampling_locations,
                 attention_weights,
                 im2col_step,
+                _fn=core_fn,
             ):
-                return core_fn(value, value_spatial_shapes, sampling_locations, attention_weights)
+                return _fn(value, value_spatial_shapes, sampling_locations, attention_weights)
 
-            mod.MultiScaleDeformableAttnFunction.forward = _fallback_forward
+            mod._C = types.SimpleNamespace(ms_deform_attn_forward=_ms_deform_attn_forward)
 
 
 def validate_openworld_proposed_config(config: dict) -> None:
