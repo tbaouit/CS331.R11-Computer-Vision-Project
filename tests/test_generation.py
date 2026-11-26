@@ -298,6 +298,7 @@ class GenerationTests(unittest.TestCase):
                 )
 
                 received_visible_args = []
+                received_occluded_args = []
 
                 class AutoBackendWrapper:
                     def __init__(self, empty=False):
@@ -318,6 +319,7 @@ class GenerationTests(unittest.TestCase):
 
                     def complete(self, img, visible, label, occluded_mask=None):
                         received_visible_args.append(visible)
+                        received_occluded_args.append(occluded_mask)
                         return self.completer.complete(
                             image=img,
                             visible_mask=visible,
@@ -330,6 +332,7 @@ class GenerationTests(unittest.TestCase):
                 res, skipped = run_one(record, root, profile_dir, cfg, AutoBackendWrapper(empty=False), "1234567890abcdef")
                 self.assertFalse(skipped)
                 self.assertIsNone(received_visible_args[0])
+                self.assertIsNone(received_occluded_args[0])
                 self.assertIn(0.15, gdino_thresholds)
                 self.assertFalse(res["trace"]["visible_pred_empty"])
                 self.assertGreater(res["metrics"]["visible_iou"], 0.5)

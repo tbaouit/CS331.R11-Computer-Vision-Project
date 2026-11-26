@@ -171,10 +171,8 @@ def run_one(record, sample_root, output_root, config, backend, profile):
             if occluded_gt.shape != visible.shape:
                 raise ValueError("Occluded input mask dimensions mismatch")
             Image.fromarray(occluded_gt.astype(np.uint8) * 255).save(job / "occluded_input.png")
-            # In auto mode, do NOT pass GT visible_mask into the pipeline
-            occluded_for_pipeline = (
-                (occluded_gt | visible) if auto_mode else occluded_gt
-            )
+            # In auto mode, pass NO ground-truth masks (neither gt_visible nor gt_amodal/gt_hidden) into the pipeline
+            occluded_for_pipeline = None if auto_mode else occluded_gt
             output = backend.complete(
                 image,
                 visible_for_pipeline,

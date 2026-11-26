@@ -94,17 +94,18 @@ class Baseline:
         self,
         image: np.ndarray,
         visible_mask: np.ndarray | None,
-        occluded_mask: np.ndarray,
+        occluded_mask: np.ndarray | None,
         label: str = "",
         job_dir: Path | None = None,
     ) -> dict:
-        if occluded_mask is None:
-            raise ValueError(f"{self.baseline_name} requires an input hidden mask")
         started = time.perf_counter()
         policy = self.config.get("text_query_policy", "dataset_object_name")
         active_label = label if policy == "dataset_object_name" else ""
         auto_mode = (self.config.get("visible_mask_source", "gt") == "auto") or (visible_mask is None)
+        if not auto_mode and occluded_mask is None:
+            raise ValueError(f"{self.baseline_name} requires an input hidden mask")
         auto_meta = None
+        zero_gt_auto = False
         if auto_mode:
             from src.stages.openworld_completion import predict_auto_visible_mask
 
@@ -141,7 +142,22 @@ class Baseline:
                     critique_history=[],
                     _trace=trace,
                 )
-            occluded_mask = np.asarray(occluded_mask, dtype=bool) & ~visible_mask
+            if occluded_mask is None:
+                # 100% Zero-GT auto mode: build an expanded bounding-box inpaint region around pred_visible_mask
+                zero_gt_auto = True
+                h_img, w_img = image.shape[:2]
+                y1, x1, y2, x2 = mask_bbox(visible_mask)
+                bh = max(1, y2 - y1 + 1)
+                bw = max(1, x2 - x1 + 1)
+                pad_y = max(16, int(round(bh * 0.25)))
+                pad_x = max(16, int(round(bw * 0.25)))
+                ey1, ey2 = max(0, y1 - pad_y), min(h_img, y2 + 1 + pad_y)
+                ex1, ex2 = max(0, x1 - pad_x), min(w_img, x2 + 1 + pad_x)
+                roi_occ = np.zeros((h_img, w_img), dtype=bool)
+                roi_occ[ey1:ey2, ex1:ex2] = True
+                occluded_mask = roi_occ & ~visible_mask
+            else:
+                occluded_mask = np.asarray(occluded_mask, dtype=bool) & ~visible_mask
         canvas, vis, occ, amodal, roi, inpaint_region = prepare_direct_inputs(image, visible_mask, occluded_mask)
         prompt = build_baseline_prompt(active_label)
         negative = self.config.get("negative_prompt", DEFAULT_NEGATIVE_PROMPT)
@@ -188,6 +204,24 @@ class Baseline:
             seed=seed,
         )
         inference_seconds = time.perf_counter() - inference_started
+        if zero_gt_auto:
+            # Segment the completed amodal object with GroundingDINO + SAM so Baseline uses zero GT masks end-to-end
+            from src.stages.openworld_completion import filter_out_amodal_segmentation, segment_with_cached_sam
+
+            _, seg_masks, _, _ = segment_with_cached_sam(
+                self.models,
+                Image.fromarray(completed),
+                classes=[active_label or "object"],
+                target_class=active_label or "object",
+                box_thresh=float(self.config.get("auto_visible_fallback_thresh", 0.15)),
+                text_thresh=float(self.config.get("auto_visible_fallback_thresh", 0.15)),
+            )
+            if seg_masks is not None and len(seg_masks) > 0:
+                _, best_seg = filter_out_amodal_segmentation(vis.astype(np.uint8), seg_masks)
+                amodal = (best_seg > 0) | vis
+            else:
+                amodal = vis.copy()
+            completed = np.where(amodal[:, :, None], completed, 255).astype(np.uint8)
         rgba = finalize_rgba(completed, amodal, *image.shape[:2])
         if job_dir is not None:
             Image.fromarray(completed).save(job / "inpainting_01.png")
