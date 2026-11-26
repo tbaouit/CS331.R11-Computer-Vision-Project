@@ -14,10 +14,30 @@ from src.models.openworld_models import (
 )
 
 
+def _should_keep_all_on_gpu(device: str, pipeline_config: dict) -> bool:
+    """Enable GPU-resident mode automatically on GPUs with >= 20 GiB VRAM (L4 22.5GB, A100 40/80GB)."""
+    if "keep_models_on_gpu" in pipeline_config:
+        return bool(pipeline_config["keep_models_on_gpu"])
+    if pipeline_config.get("sequential_offload") is True:
+        return False
+    if not str(device).startswith("cuda"):
+        return False
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return False
+        total_bytes = int(torch.cuda.get_device_properties(0).total_memory)
+        return total_bytes >= int(19.5 * (1024**3))
+    except Exception:
+        return False
+
+
 class FoundationModels:
     """Lazy, single-GPU model registry shared by Baseline (SD2) and Proposed (Open-World Amodal SD2).
 
-    Accessing a model property activates that stage and offloads its predecessor to CPU RAM.
+    - On GPUs with >= 20 GiB VRAM (L4 / A100), loaded stages remain pinned on CUDA for maximum throughput.
+    - On GPUs with < 20 GiB VRAM (T4 15GB), accessing a stage offloads its predecessor to CPU RAM.
     SAM ViT-H is built once and cached across all iterations and samples.
     """
 
@@ -34,7 +54,12 @@ class FoundationModels:
         self.pipeline_config = pipeline_config or {}
         self._models = {}
         self._active = None
-        print("[Models] Sequential offload enabled: one stage on GPU; cached weights in CPU RAM.", flush=True)
+        self._gpu_resident: set[str] = set()
+        self.keep_all_on_gpu = _should_keep_all_on_gpu(device, self.pipeline_config)
+        if self.keep_all_on_gpu:
+            print("[Models] High-VRAM GPU detected (>=20 GiB): keeping all active stages resident on CUDA.", flush=True)
+        else:
+            print("[Models] Sequential offload enabled: one stage on GPU; cached weights in CPU RAM.", flush=True)
 
     @staticmethod
     def _clear_cache():
@@ -44,19 +69,32 @@ class FoundationModels:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def release_gpu(self):
-        if self._active is not None:
-            try:
-                from diffusers.utils import logging as diffusers_logging
+    def _move_to_cpu_quietly(self, model):
+        try:
+            from diffusers.utils import logging as diffusers_logging
 
-                prev_verbosity = diffusers_logging.get_verbosity()
-                diffusers_logging.set_verbosity_error()
-                try:
-                    self._models[self._active].to("cpu")
-                finally:
-                    diffusers_logging.set_verbosity(prev_verbosity)
-            except Exception:
-                self._models[self._active].to("cpu")
+            prev_verbosity = diffusers_logging.get_verbosity()
+            diffusers_logging.set_verbosity_error()
+            try:
+                model.to("cpu")
+            finally:
+                diffusers_logging.set_verbosity(prev_verbosity)
+        except Exception:
+            model.to("cpu")
+
+    def release_gpu(self, force: bool = False):
+        if self.keep_all_on_gpu and not force:
+            self._active = None
+            return
+        if self._gpu_resident:
+            for name in list(self._gpu_resident):
+                if name in self._models:
+                    self._move_to_cpu_quietly(self._models[name])
+                self._gpu_resident.discard(name)
+            self._active = None
+            self._clear_cache()
+        elif self._active is not None:
+            self._move_to_cpu_quietly(self._models[self._active])
             self._active = None
             self._clear_cache()
 
@@ -113,15 +151,22 @@ class FoundationModels:
     def _activate(self, name: str):
         if self._active == name:
             return self._models[name]
-        # Offload BEFORE loading or moving the next model to avoid transient OOM.
-        self.release_gpu()
+        if self.keep_all_on_gpu and name in self._gpu_resident and name in self._models:
+            self._active = name
+            return self._models[name]
+        if not self.keep_all_on_gpu:
+            # Offload BEFORE loading or moving the next model to avoid transient OOM on <20GB GPUs.
+            self.release_gpu()
         if name not in self._models:
             self._models[name] = self._load(name)
         model = self._models[name]
         try:
             model.to(self.device)
+            if self.keep_all_on_gpu:
+                self._gpu_resident.add(name)
         except Exception:
-            model.to("cpu")
+            self._move_to_cpu_quietly(model)
+            self._gpu_resident.discard(name)
             self._clear_cache()
             raise
         self._active = name

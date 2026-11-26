@@ -89,6 +89,39 @@ class ModelMemoryTests(unittest.TestCase):
                     self.assertFalse(resident)
                     self.assertIsNone(registry._active)
 
+    def test_high_vram_mode_keeps_models_resident_without_repeated_transfers(self):
+        registry = FoundationModels(
+            "sd2-community/stable-diffusion-2-inpainting",
+            "ViT-B/32",
+            pipeline_config={"keep_models_on_gpu": True},
+        )
+        events, loads = [], []
+
+        class ResidentFakeModel:
+            def __init__(self, name):
+                self.name = name
+
+            def to(self, device):
+                events.append((self.name, device))
+                return self
+
+        def load(name):
+            loads.append(name)
+            return ResidentFakeModel(name)
+
+        registry._load = load
+        registry._clear_cache = lambda: None
+
+        for _ in range(3):
+            registry.gdino
+            registry.sam
+            registry.pipe
+            registry.release_gpu()
+
+        self.assertEqual(loads, ["gdino", "sam", "inpainting"])
+        # Each model is moved to CUDA exactly ONCE across all 3 samples, with zero CPU round-trips
+        self.assertEqual(events, [("gdino", "cuda"), ("sam", "cuda"), ("inpainting", "cuda")])
+
 
 if __name__ == "__main__":
     unittest.main()

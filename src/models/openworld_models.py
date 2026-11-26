@@ -700,6 +700,5 @@ class InstaOrderModel:
             occluder_masks.append(modal[int(idx)])
 
         del modal, bboxes, pcolor_occ_order
-        gc.collect()
         return occluder_masks
 
