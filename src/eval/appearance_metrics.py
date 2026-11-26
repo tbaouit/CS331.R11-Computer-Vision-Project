@@ -19,7 +19,7 @@ from PIL import Image
 
 CLIP_METRIC_MODEL_ID = "openai/clip-vit-base-patch32"
 DINO_METRIC_MODEL_ID = "facebook/dino-vitb16"
-PROTOCOL = "decoded_rgb_visible_black_openworld"
+PROTOCOL = "cvpr2025_full_object_white_bg_union_crop"
 METRIC_NAMES = (
     "CLIP_score",
     "OpenCLIP_score",
@@ -32,19 +32,19 @@ METRIC_NAMES = (
 )
 POLICY = {
     "protocol": PROTOCOL,
-    "output": "decoded ROI RGB after paste-back; amodal alpha",
+    "output": "completed amodal object composited onto white (255,255,255) background via amodal alpha mask",
     "seam_and_color": "compare visible and hidden regions on the output RGB",
-    "reference": "original input RGB; no hidden RGB ground truth",
-    "CLIP_score": "full output RGB vs raw annotation class name; scaled CLIP image/text logit",
-    "OpenCLIP_score": "full output RGB vs raw annotation class name; OpenCLIP ViT-B-32 cosine similarity",
-    "visible_metrics": "original canvas, black outside visible mask; no crop or manual resize",
+    "reference": "visible input RGB composited onto white (255,255,255) background; cropped to union bounding box (min side >= 32)",
+    "CLIP_score": "cropped completed amodal object on white bg vs raw annotation class name; scaled CLIP image/text logit",
+    "OpenCLIP_score": "cropped completed amodal object on white bg vs raw annotation class name; OpenCLIP ViT-B-32 cosine similarity",
+    "visible_metrics": "full-object paper protocol (CVPR 2025 Table 3 / eva_amodal.py): visible_input_white vs completed_amodal_white on union bbox",
     "feature_backbone": CLIP_METRIC_MODEL_ID,
     "vgg_backbone": "torchvision VGG16 ImageNet features cosine similarity (eva_amodal.py)",
     "dino_backbone": "DINO ViT-B/16 feature cosine similarity (eva_amodal.py)",
     "lpips_backbone": "alex; uint8 RGB normalized to [-1,1]",
     "SSIM": "skimage RGB, channel_axis=-1, data_range=255, adaptive odd win_size<=7",
-    "PSNR": "255 range; full masked-canvas MSE; exact match capped at 100 dB",
-    "limitation": "identical black pixels influence scores; visible preservation is paired with seam_mae and color_hist_sim",
+    "PSNR": "255 range; union-bbox white-canvas MSE; exact match capped at 100 dB",
+    "limitation": "paired with seam_mae, color_hist_sim, and visible_iou",
 }
 _cache: dict = {}
 
@@ -239,14 +239,46 @@ def ssim_score(img_a: np.ndarray, img_b: np.ndarray) -> float:
     return float(structural_similarity(img_a, img_b, channel_axis=2, data_range=255, win_size=win_size))
 
 
+def crop_union_bbox_white(
+    vis_white: np.ndarray,
+    comp_white: np.ndarray,
+    union_mask: np.ndarray,
+    min_side: int = 32,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Crop both white-background images to the union bounding box of `visible | amodal` (min side >= 32)."""
+    h, w = vis_white.shape[:2]
+    ys, xs = np.where(union_mask)
+    if len(ys) == 0:
+        y1, y2, x1, x2 = 0, h, 0, w
+    else:
+        y1, y2 = int(ys.min()), int(ys.max()) + 1
+        x1, x2 = int(xs.min()), int(xs.max()) + 1
+
+    cur_h = y2 - y1
+    if cur_h < min_side:
+        pad_y = min_side - cur_h
+        y1 = max(0, y1 - pad_y // 2)
+        y2 = min(h, y1 + min_side)
+        y1 = max(0, y2 - min_side)
+    cur_w = x2 - x1
+    if cur_w < min_side:
+        pad_x = min_side - cur_w
+        x1 = max(0, x1 - pad_x // 2)
+        x2 = min(w, x1 + min_side)
+        x1 = max(0, x2 - min_side)
+
+    return vis_white[y1:y2, x1:x2].copy(), comp_white[y1:y2, x1:x2].copy()
+
+
 def compute_visible_appearance_metrics(
     image: np.ndarray,
     completed_rgb: np.ndarray,
     visible: np.ndarray,
     object_name: str,
     device: str = "cpu",
+    amodal_mask: np.ndarray | None = None,
 ) -> dict:
-    """Compute unified appearance metrics (`eva_amodal.py` + visible preservation protocol) on a sample."""
+    """Compute CVPR 2025 full-object appearance metrics (`eva_amodal.py`: visible_input_white vs completed_amodal_white)."""
     if image.dtype != np.uint8 or completed_rgb.dtype != np.uint8:
         raise ValueError("Metrics require uint8 RGB; do not silently rescale images")
     if image.ndim != 3 or image.shape[2] != 3 or completed_rgb.shape != image.shape:
@@ -258,16 +290,26 @@ def compute_visible_appearance_metrics(
         raise ValueError("LPIPS/SSIM protocol requires canvas dimensions >= 32")
     if not isinstance(object_name, str) or not object_name.strip():
         raise ValueError("A nonempty annotation class name is required for CLIP/OpenCLIP")
-    original_v = np.where(visible[:, :, None], image, 0).astype(np.uint8)
-    completed_v = np.where(visible[:, :, None], completed_rgb, 0).astype(np.uint8)
-    original_v_white = np.where(visible[:, :, None], image, 255).astype(np.uint8)
+
+    visible_input_white = np.where(visible[:, :, None], image, 255).astype(np.uint8)
+    if amodal_mask is not None:
+        amodal_bool = np.asarray(amodal_mask, dtype=bool)
+        if amodal_bool.shape != image.shape[:2]:
+            raise ValueError("Amodal mask has a different canvas")
+        completed_amodal_white = np.where(amodal_bool[:, :, None], completed_rgb, 255).astype(np.uint8)
+        union_mask = visible | amodal_bool
+    else:
+        completed_amodal_white = completed_rgb
+        union_mask = visible | np.any(completed_rgb < 250, axis=2)
+
+    vis_crop, comp_crop = crop_union_bbox_white(visible_input_white, completed_amodal_white, union_mask, min_side=32)
     return {
-        "CLIP_score": clip_score(completed_rgb, object_name, device),
-        "OpenCLIP_score": openclip_score(completed_rgb, object_name, device),
-        "LPIPS": lpips_distance(completed_v, original_v, device),
-        "Feature_Similarity": clip_feature_similarity(completed_v, original_v, device),
-        "VGG_similarity": vgg_feature_similarity(completed_v, original_v, device),
-        "DINO_similarity": dino_similarity(original_v_white, completed_rgb, device),
-        "SSIM": ssim_score(completed_v, original_v),
-        "PSNR": psnr_score(completed_v, original_v),
+        "CLIP_score": clip_score(comp_crop, object_name, device),
+        "OpenCLIP_score": openclip_score(comp_crop, object_name, device),
+        "LPIPS": lpips_distance(comp_crop, vis_crop, device),
+        "Feature_Similarity": clip_feature_similarity(comp_crop, vis_crop, device),
+        "VGG_similarity": vgg_feature_similarity(comp_crop, vis_crop, device),
+        "DINO_similarity": dino_similarity(vis_crop, comp_crop, device),
+        "SSIM": ssim_score(comp_crop, vis_crop),
+        "PSNR": psnr_score(comp_crop, vis_crop),
     }

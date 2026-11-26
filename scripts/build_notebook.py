@@ -69,8 +69,8 @@ if not (PROJECT / ".git").is_dir():
         raise RuntimeError("Move the existing non-Git /content/cs331 directory aside before cloning")
     sh("git", "clone", "--branch", "main", REPO_URL, PROJECT, extra_env=git_env)
 
-# Giữ cố định mã nguồn giữa các lần resume. RUN_NAME mới lấy mã mới từ main.
-if repo_lock.is_file():
+# Giữ cố định mã nguồn giữa các lần resume sinh ảnh. Khi EVALUATION_ONLY=True hoặc RUN_NAME mới thì lấy mã mới từ main.
+if repo_lock.is_file() and not EVALUATION_ONLY:
     commit = json.loads(repo_lock.read_text(encoding="utf-8"))["commit"]
     if not re.fullmatch(r"[a-f0-9]{40}", commit):
         raise ValueError("Mã commit trên Drive không hợp lệ")
@@ -120,9 +120,12 @@ else:
 ''',
 '''# 4. Chuẩn bị cùng tập mẫu cho mọi phiên bản
 BATCH = "full"  # Chọn 10, 50 hoặc "full".
+VISIBLE_MASK_SOURCE = "auto"  # Chọn "auto" (không dùng mask có sẵn: GroundingDINO + SAM tự đoán) hoặc "gt" (dùng visible_mask có sẵn).
 BATCH = str(BATCH)
 if BATCH not in ("10", "50", "full"):
     raise ValueError("BATCH phải là 10, 50 hoặc full")
+if VISIBLE_MASK_SOURCE not in ("gt", "auto"):
+    raise ValueError("VISIBLE_MASK_SOURCE phải là 'gt' hoặc 'auto'")
 extra = ["--allow-test"]  # Inference on the named subset across all original splits.
 DATA_RUN = EXPERIMENT / ("batch_" + BATCH)
 RUNS_ROOT = DATA_RUN / "runs"
@@ -153,17 +156,22 @@ else:
         save_json(saved_manifest, records)
 
 def marker(role):
-    return DATA_RUN / "profiles" / f"{role}.json"
+    auto_marker = DATA_RUN / "profiles" / f"{role}_auto.json"
+    gt_marker = DATA_RUN / "profiles" / f"{role}.json"
+    if VISIBLE_MASK_SOURCE == "auto" and (not EVALUATION_ONLY or auto_marker.is_file()):
+        return auto_marker
+    return gt_marker
 
 def run_version(role):
     if EVALUATION_ONLY:
         raise RuntimeError("Phiên này chỉ đánh giá; bỏ qua ô 5–6.")
     config = f"configs/{role}.json"
     sh(PYTHON, "scripts/run_experiment.py", "--manifest", manifest, "--limit", N,
-       "--config", config, "--runs-root", RUNS_ROOT / role,
+       "--config", config, "--visible-mask-source", VISIBLE_MASK_SOURCE,
+       "--runs-root", RUNS_ROOT / role,
        "--profile-state", marker(role), *extra)
 
-print("Số vật thể:", N, "| Batch trên Drive:", DATA_RUN)
+print("Số vật thể:", N, "| Chế độ visible_mask:", VISIBLE_MASK_SOURCE, "| Batch trên Drive:", DATA_RUN)
 for role in configs:
     state = json.loads(marker(role).read_text(encoding="utf-8")) if marker(role).is_file() else {}
     print(role, state.get("status", "chưa chạy"), state.get("profile", ""))
@@ -209,7 +217,7 @@ sh(PYTHON, "scripts/compare_versions.py", "--manifest", saved_manifest, "--outpu
 report = json.loads((output / "comparison.json").read_text(encoding="utf-8"))
 for role in roles:
     relevant = {k: v["mean"] for k, v in report["metrics"][role].items()
-                if k in ("CLIP_score", "OpenCLIP_score", "DINO_similarity", "VGG_similarity",
+                if k in ("visible_iou", "CLIP_score", "OpenCLIP_score", "DINO_similarity", "VGG_similarity",
                          "Feature_Similarity", "SSIM", "PSNR", "LPIPS", "seam_mae", "color_hist_sim")}
     print(role, relevant, "critic:", report["critic"][role])
 if report["fid"]:

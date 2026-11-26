@@ -8,6 +8,8 @@ import math
 import sys
 from pathlib import Path
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -74,9 +76,10 @@ def evaluate_profile(profile, records, device="cuda", continue_on_error=False, e
                     row = existing["row"]
                     cached = True
                 else:
-                    image, output = read_rgb(job / "input.png"), read_rgb(job / "completion.png")
+                    image, output_raw = read_rgb(job / "input.png"), read_rgb(job / "completion.png")
                     visible = read_mask(job / "visible.png")
                     amodal = read_mask(job / "amodal.png")
+                    output = np.where(amodal[:, :, None], output_raw, 255).astype(np.uint8)
                     metrics = evaluate(image, output, visible, record.get("name", ""), device=device)
                     if any(v is None or not math.isfinite(v) for v in metrics.values()):
                         raise ValueError("Appearance evaluator returned missing or non-finite scores")
