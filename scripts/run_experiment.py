@@ -53,6 +53,26 @@ def mark_profile_state(path, state, status):
     write_json(path, dict(state, status=status))
 
 
+def _fast_resume_result(output_root: Path, sample_id: str, profile: str):
+    """Fast-path resume check reading only result.json (1 Drive op instead of 12+ SHA reads)."""
+    sample_dir = output_root / sample_id
+    if not sample_dir.is_dir():
+        return None
+    for res_path in sample_dir.glob("*/result.json"):
+        try:
+            existing = json.loads(res_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        if (
+            isinstance(existing, dict)
+            and existing.get("status") == "completed"
+            and existing.get("profile") == profile
+            and (res_path.parent / "completion.png").is_file()
+        ):
+            return existing
+    return None
+
+
 # Preflight, tính profile, phục hồi artefact, chạy các mẫu còn thiếu và ghi báo cáo.
 def main():
     if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8")
@@ -157,26 +177,39 @@ def main():
                     flush=True,
                 )
                 for idx, record in enumerate(records, start=1):
-                    dirty_backup = True
                     failed = None
+                    skipped = False
                     try:
-                        random.seed(config["seed"]); np.random.seed(config["seed"])
-                        torch.manual_seed(config["seed"]); torch.cuda.manual_seed_all(config["seed"])
-                        result, skipped = run_one(record, args.manifest.resolve().parent, output_root, config, lazy, profile)
+                        cached_res = _fast_resume_result(output_root, record["sample_id"], profile)
+                        if cached_res is not None:
+                            result, skipped = cached_res, True
+                        else:
+                            random.seed(config["seed"]); np.random.seed(config["seed"])
+                            torch.manual_seed(config["seed"]); torch.cuda.manual_seed_all(config["seed"])
+                            result, skipped = run_one(record, args.manifest.resolve().parent, output_root, config, lazy, profile)
+                        if not skipped:
+                            dirty_backup = True
                         results.append(dict(sample_id=record["sample_id"], status="completed", resumed=skipped, metrics=result["metrics"]))
                         print(f"[{idx}/{len(records)}] {record['sample_id']}", "resumed" if skipped else f"completed ({result['seconds']}s)", result["metrics"], flush=True)
                     except Exception as error:
                         failed = error
+                        dirty_backup = True
                         results.append(dict(sample_id=record["sample_id"], status="failed", error=str(error)))
                         print("FAILED:", record["sample_id"], str(error), flush=True)
                         if backend is not None:
                             backend.models.release_gpu()
                     results[-1].update(category=record.get("name"), hidden_ratio=record.get("hidden_ratio"),
                                        occlusion_bin=occlusion_bin(record.get("hidden_ratio")))
-                    write_json(output_root / "summary.json", results)
-                    write_reports(output_root / "generation_report", results, dict(profile=profile, selected=len(records)))
+                    should_flush_report = (
+                        failed is not None
+                        or idx == len(records)
+                        or (not skipped and (idx % 10 == 0 or idx == 1))
+                    )
+                    if should_flush_report:
+                        write_json(output_root / "summary.json", results)
+                        write_reports(output_root / "generation_report", results, dict(profile=profile, selected=len(records)))
                     log.flush()
-                    if results[-1]["status"] == "failed" or idx == len(records) or (args.backup_every > 0 and idx % args.backup_every == 0):
+                    if failed is not None or (dirty_backup and (idx == len(records) or (args.backup_every > 0 and idx % args.backup_every == 0))):
                         backup(output_root, args.backup_dir)
                         dirty_backup = False
                     if failed is not None and (not args.continue_on_error or "out of memory" in str(failed).lower()):
