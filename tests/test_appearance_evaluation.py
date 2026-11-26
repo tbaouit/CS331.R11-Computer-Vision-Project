@@ -33,15 +33,16 @@ class AppearanceEvaluationTests(unittest.TestCase):
         with patch.object(metrics, "clip_score", return_value=24) as clip, \
              patch.object(metrics, "openclip_score", return_value=0.35) as oclip, \
              patch.object(metrics, "lpips_distance", return_value=0) as lpips, \
-             patch.object(metrics, "clip_feature_similarity", return_value=1) as feature, \
-             patch.object(metrics, "vgg_feature_similarity", return_value=1) as vgg, \
-             patch.object(metrics, "dino_similarity", return_value=1) as dino, \
+             patch.object(metrics, "vgg_feature_similarity", return_value=0.92) as vgg, \
+             patch.object(metrics, "dino_similarity", return_value=0.81) as dino, \
              patch.object(metrics, "ssim_score", return_value=1) as ssim:
             result = metrics.compute_visible_appearance_metrics(image, output, visible, "teddy bear")
         self.assertEqual(clip.call_args.args[1:], ("teddy bear", "cpu"))
         self.assertEqual(oclip.call_args.args[1:], ("teddy bear", "cpu"))
+        # DINO is called exactly ONCE and shared by Feature_Similarity and DINO_similarity
+        dino.assert_called_once()
         # Full-object paper protocol: visible input on white (255) vs full completed amodal output on white (255)
-        for call in (lpips.call_args, feature.call_args, vgg.call_args, ssim.call_args):
+        for call in (lpips.call_args, vgg.call_args, ssim.call_args):
             comp_arg, vis_arg = call.args[:2]
             self.assertEqual(comp_arg.shape, vis_arg.shape)
             self.assertGreaterEqual(min(comp_arg.shape[:2]), 32)
@@ -53,13 +54,13 @@ class AppearanceEvaluationTests(unittest.TestCase):
             result,
             dict(
                 CLIP_score=24,
-                OpenCLIP_score=0.35,
                 LPIPS=0,
-                Feature_Similarity=1,
-                VGG_similarity=1,
-                DINO_similarity=1,
+                Feature_Similarity=0.81,
                 SSIM=1,
+                OpenCLIP_score=0.35,
                 PSNR=metrics.psnr_score(lpips.call_args.args[0], lpips.call_args.args[1]),
+                VGG_similarity=0.92,
+                DINO_similarity=0.81,
             ),
         )
 

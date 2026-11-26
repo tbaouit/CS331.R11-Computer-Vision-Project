@@ -147,14 +147,9 @@ def evaluate_batch_pairs(
         labels = [c["label"] for c in chunk]
 
         with torch.no_grad():
-            # CLIP visual feature similarity (Feature_Similarity)
-            in_vis_clip = clip_proc(images=vis_crops, return_tensors="pt").to(device)
+            # CLIP image-text prompt relevance score (CLIP_score) — does NOT use CLIP for Feature_Similarity
             in_comp_clip = clip_proc(images=comp_crops, return_tensors="pt").to(device)
-            feat_vis_clip = _as_tensor(clip_model.get_image_features(**in_vis_clip))
             feat_comp_clip = _as_tensor(clip_model.get_image_features(**in_comp_clip))
-            clip_feat_sims = F.cosine_similarity(feat_comp_clip, feat_vis_clip, dim=1).detach().cpu().tolist()
-
-            # CLIP image-text prompt relevance score (CLIP_score)
             txt_inputs = clip_proc(text=labels, return_tensors="pt", padding=True, truncation=True).to(device)
             txt_feat = _as_tensor(
                 clip_model.get_text_features(
@@ -167,7 +162,7 @@ def evaluate_batch_pairs(
             logit_scale = clip_model.logit_scale.exp()
             clip_scores = (logit_scale * (feat_comp_norm * txt_feat_norm).sum(dim=-1)).detach().cpu().tolist()
 
-            # VGG-16 convolutional feature cosine similarity (compute_feature_similarity in eva_amodal.py)
+            # VGG-16 convolutional feature cosine similarity (auxiliary metric)
             t_vis_vgg = torch.stack([vgg_proc(Image.fromarray(img)) for img in vis_crops], dim=0).to(device)
             t_comp_vgg = torch.stack([vgg_proc(Image.fromarray(img)) for img in comp_crops], dim=0).to(device)
             f_vis_vgg = vgg_model(t_vis_vgg)
@@ -175,7 +170,7 @@ def evaluate_batch_pairs(
             vgg_sims_tensor = F.cosine_similarity(f_comp_vgg, f_vis_vgg, dim=1).mean(dim=(1, 2))
             vgg_sims = vgg_sims_tensor.detach().cpu().tolist()
 
-            # DINO ViT-B/16 feature cosine similarity (compute_dino_similarity in eva_amodal.py)
+            # DINO ViT-B/16 feature cosine similarity — canonical Feature_Similarity in CVPR 2025 Table 3 (computed once)
             if dino_kind == "hf":
                 in_vis_dino = dino_proc(images=[Image.fromarray(img) for img in vis_crops], return_tensors="pt").to(device)
                 in_comp_dino = dino_proc(images=[Image.fromarray(img) for img in comp_crops], return_tensors="pt").to(device)
@@ -188,9 +183,9 @@ def evaluate_batch_pairs(
                 f_comp_dino = dino_model(t_comp_dino)
             dino_sims = F.cosine_similarity(f_vis_dino, f_comp_dino, dim=1).detach().cpu().tolist()
 
-        for offset, (cfs, cs, vs, ds) in enumerate(zip(clip_feat_sims, clip_scores, vgg_sims, dino_sims)):
+        for offset, (cs, vs, ds) in enumerate(zip(clip_scores, vgg_sims, dino_sims)):
             idx = start + offset
-            results[idx]["Feature_Similarity"] = float(cfs)
+            results[idx]["Feature_Similarity"] = float(ds)
             results[idx]["VGG_similarity"] = float(vs)
             results[idx]["CLIP_score"] = float(cs)
             results[idx]["DINO_similarity"] = float(ds)
@@ -300,11 +295,11 @@ def format_summary_table(title: str, n_samples: int, base_stats: dict, prop_stat
     }
     labels = {
         "LPIPS": "LPIPS (AlexNet)",
-        "Feature_Similarity": "Feature_Similarity (CLIP)",
-        "VGG_similarity": "VGG_similarity (eva_amodal)",
+        "Feature_Similarity": "Feature_Similarity (DINO)",
+        "VGG_similarity": "VGG_similarity (Auxiliary)",
         "SSIM": "SSIM",
         "CLIP_score": "CLIP_score",
-        "DINO_similarity": "DINO_similarity",
+        "DINO_similarity": "DINO_similarity (Alias)",
     }
     lines = [
         f"\n=== {title} (N = {n_samples}) ===",

@@ -1,16 +1,19 @@
-# Phạm vi: Cả hai phiên bản (baseline và proposed): bộ metric đồng bộ theo eva_amodal.py (Open-World Amodal):
-# CLIP_score, OpenCLIP_score chấm ảnh hoàn chỉnh theo nhãn; LPIPS, Feature_Similarity (CLIP),
-# VGG_similarity, DINO_similarity, SSIM, PSNR chấm trên vùng quan sát.
-"""Unified evaluation protocol integrating Open-World Amodal (`eva_amodal.py`) metrics.
+# Phạm vi: Cả hai phiên bản (baseline và proposed): bộ metric đồng bộ theo CVPR 2025 Table 3 & eva_amodal.py:
+# 4 metric chính: CLIP_score (↑), LPIPS (↓), Feature_Similarity (DINO ViT-B/16 cosine similarity, ↑), SSIM (↑)
+# trên cặp ảnh nền trắng (visible_input_white vs completed_amodal_white), cùng các metric phụ trợ
+# (OpenCLIP_score, PSNR, VGG_similarity, DINO_similarity).
+"""Unified evaluation protocol following CVPR 2025 ("Open-World Amodal Appearance Completion", Table 3).
 
-Both `baseline` and `proposed` are evaluated with the exact same metric suite on the same COCO-A manifest:
-- `CLIP_score` (HuggingFace `openai/clip-vit-base-patch32` image-text logit on full completed RGB)
-- `OpenCLIP_score` (OpenCLIP `ViT-B-32` `laion2b_s34b_b79k` image-text cosine similarity on full completed RGB)
-- `LPIPS` (AlexNet perceptual distance on visible region)
-- `Feature_Similarity` (CLIP ViT-B/32 visual cosine similarity on visible region)
-- `VGG_similarity` (VGG-16 convolutional feature cosine similarity as in `eva_amodal.py`)
-- `DINO_similarity` (DINO ViT-B/16 feature cosine similarity as in `eva_amodal.py`)
-- `SSIM` & `PSNR`
+Primary Table 3 metrics (evaluated on full-object white-background union-bbox pairs
+`visible_input_white` vs. `completed_amodal_white`):
+1. `CLIP_score` (↑): HuggingFace `openai/clip-vit-base-patch32` image-text logit on `completed_amodal_white`.
+2. `LPIPS` (↓): AlexNet perceptual distance between `visible_input_white` and `completed_amodal_white`.
+3. `Feature_Similarity` (↑): DINO ViT-B/16 (`facebook/dino-vitb16`) cosine similarity between normalized
+   embeddings of `visible_input_white` and `completed_amodal_white` (computed once and aliased to `DINO_similarity`).
+4. `SSIM` (↑): Structural similarity between `visible_input_white` and `completed_amodal_white`.
+
+Auxiliary metrics preserved for supplemental analysis:
+- `OpenCLIP_score` (↑), `PSNR` (↑), `VGG_similarity` (↑), plus `seam_mae`, `color_hist_sim`, and `visible_iou`.
 """
 from __future__ import annotations
 
@@ -19,28 +22,36 @@ from PIL import Image
 
 CLIP_METRIC_MODEL_ID = "openai/clip-vit-base-patch32"
 DINO_METRIC_MODEL_ID = "facebook/dino-vitb16"
-PROTOCOL = "cvpr2025_full_object_white_bg_union_crop"
-METRIC_NAMES = (
+PROTOCOL = "cvpr2025_table3_dino_feature_similarity_v2"
+PRIMARY_PAPER_METRICS = (
     "CLIP_score",
-    "OpenCLIP_score",
     "LPIPS",
     "Feature_Similarity",
+    "SSIM",
+)
+METRIC_NAMES = (
+    "CLIP_score",
+    "LPIPS",
+    "Feature_Similarity",
+    "SSIM",
+    "OpenCLIP_score",
+    "PSNR",
     "VGG_similarity",
     "DINO_similarity",
-    "SSIM",
-    "PSNR",
 )
 POLICY = {
     "protocol": PROTOCOL,
+    "primary_metrics": list(PRIMARY_PAPER_METRICS),
     "output": "completed amodal object composited onto white (255,255,255) background via amodal alpha mask",
     "seam_and_color": "compare visible and hidden regions on the output RGB",
     "reference": "visible input RGB composited onto white (255,255,255) background; cropped to union bounding box (min side >= 32)",
     "CLIP_score": "cropped completed amodal object on white bg vs raw annotation class name; scaled CLIP image/text logit",
     "OpenCLIP_score": "cropped completed amodal object on white bg vs raw annotation class name; OpenCLIP ViT-B-32 cosine similarity",
+    "Feature_Similarity": "DINO ViT-B/16 (facebook/dino-vitb16) cosine similarity between visible_input_white and completed_amodal_white (CVPR 2025 Table 3)",
     "visible_metrics": "full-object paper protocol (CVPR 2025 Table 3 / eva_amodal.py): visible_input_white vs completed_amodal_white on union bbox",
-    "feature_backbone": CLIP_METRIC_MODEL_ID,
-    "vgg_backbone": "torchvision VGG16 ImageNet features cosine similarity (eva_amodal.py)",
-    "dino_backbone": "DINO ViT-B/16 feature cosine similarity (eva_amodal.py)",
+    "feature_backbone": DINO_METRIC_MODEL_ID,
+    "vgg_backbone": "torchvision VGG16 ImageNet features cosine similarity (auxiliary)",
+    "dino_backbone": "DINO ViT-B/16 feature cosine similarity (canonical Feature_Similarity)",
     "lpips_backbone": "alex; uint8 RGB normalized to [-1,1]",
     "SSIM": "skimage RGB, channel_axis=-1, data_range=255, adaptive odd win_size<=7",
     "PSNR": "255 range; union-bbox white-canvas MSE; exact match capped at 100 dB",
@@ -166,13 +177,8 @@ def openclip_score(image: np.ndarray, text: str, device: str = "cuda") -> float:
 
 
 def clip_feature_similarity(img_a: np.ndarray, img_b: np.ndarray, device: str = "cuda") -> float:
-    import torch
-
-    model, processor = _clip(device)
-    with torch.no_grad():
-        feat_a = _as_tensor(model.get_image_features(**processor(images=img_a, return_tensors="pt").to(device)))
-        feat_b = _as_tensor(model.get_image_features(**processor(images=img_b, return_tensors="pt").to(device)))
-    return float(torch.nn.functional.cosine_similarity(feat_a, feat_b, dim=1).item())
+    """Deprecated alias: Table 3 `Feature_Similarity` now uses DINO ViT-B/16 cosine similarity."""
+    return dino_similarity(img_a, img_b, device=device)
 
 
 def vgg_feature_similarity(img_a: np.ndarray, img_b: np.ndarray, device: str = "cuda") -> float:
@@ -303,13 +309,15 @@ def compute_visible_appearance_metrics(
         union_mask = visible | np.any(completed_rgb < 250, axis=2)
 
     vis_crop, comp_crop = crop_union_bbox_white(visible_input_white, completed_amodal_white, union_mask, min_side=32)
+    # Compute DINO ViT-B/16 cosine similarity ONCE and assign to canonical Feature_Similarity (and DINO_similarity alias)
+    dino_feat_sim = dino_similarity(vis_crop, comp_crop, device)
     return {
         "CLIP_score": clip_score(comp_crop, object_name, device),
-        "OpenCLIP_score": openclip_score(comp_crop, object_name, device),
         "LPIPS": lpips_distance(comp_crop, vis_crop, device),
-        "Feature_Similarity": clip_feature_similarity(comp_crop, vis_crop, device),
-        "VGG_similarity": vgg_feature_similarity(comp_crop, vis_crop, device),
-        "DINO_similarity": dino_similarity(vis_crop, comp_crop, device),
+        "Feature_Similarity": dino_feat_sim,
         "SSIM": ssim_score(comp_crop, vis_crop),
+        "OpenCLIP_score": openclip_score(comp_crop, object_name, device),
         "PSNR": psnr_score(comp_crop, vis_crop),
+        "VGG_similarity": vgg_feature_similarity(comp_crop, vis_crop, device),
+        "DINO_similarity": dino_feat_sim,
     }
