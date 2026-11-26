@@ -187,6 +187,181 @@ class GenerationTests(unittest.TestCase):
             else:
                 sys.modules["torch"] = old_torch
 
+    def test_auto_visible_mask_mode_fallback_debug_artifacts_and_empty_graceful_handling(self):
+        """Verify --visible-mask-source auto predicts visible_mask via GDINO+SAM, logs visible_iou, and handles empty predictions."""
+        from scripts.evaluate_runs import evaluate_profile
+        from src.evaluation.runner import run_one
+
+        cfg = proposed_config()
+        cfg["visible_mask_source"] = "auto"
+        cfg["max_iter"] = 1
+        h, w = 48, 64
+        image = np.full((h, w, 3), [100, 130, 160], np.uint8)
+        gt_vis = np.zeros((h, w), bool)
+        gt_vis[10:30, 12:32] = True
+        gt_occ = np.zeros((h, w), bool)
+        gt_occ[10:30, 32:48] = True
+        gt_amodal = gt_vis | gt_occ
+
+        class FakeTensor:
+            def __init__(self, arr):
+                self.arr = np.asarray(arr, dtype=np.float32)
+
+            def size(self, dim=0):
+                return self.arr.shape[dim]
+
+            def __getitem__(self, item):
+                return FakeTensor(self.arr[item])
+
+            def clone(self):
+                return FakeTensor(self.arr.copy())
+
+            def cpu(self):
+                return self
+
+            def float(self):
+                return self
+
+            def tolist(self):
+                return self.arr.tolist()
+
+        gdino_thresholds = []
+
+        class FakeGDINO:
+            def __init__(self, empty=False):
+                self.empty = empty
+
+            def detect(self, img_pil, caption, box_thresh=0.35, text_thresh=0.35):
+                gdino_thresholds.append(box_thresh)
+                if self.empty or box_thresh > 0.20:
+                    return FakeTensor(np.zeros((0, 4), dtype=np.float32)), []
+                return (
+                    FakeTensor([[0.25, 0.25, 0.2, 0.2], [0.4, 0.45, 0.35, 0.4]]),
+                    ["chair(0.21)", "chair(0.64)"],
+                )
+
+        class FakeSAM:
+            def segment_boxes(self, img_pil, boxes_filt):
+                pw, ph = img_pil.size
+                n = boxes_filt.size(0)
+                pred_m = np.zeros((n, ph, pw), dtype=bool)
+                pred_m[:, 12:32, 14:34] = True
+                return np.array(img_pil), pred_m
+
+        class FakeRAM:
+            def infer_tags(self, img_pil):
+                return ["chair", "table"]
+
+        class FakeCLIP:
+            def select_prompt(self, masked_pil, classes, text_query=""):
+                return text_query or "chair"
+
+        class FakeInstaOrder:
+            def analyze_masks(self, img_np, masks, mask_id):
+                target_m = masks[mask_id] > 0
+                mh, mw = target_m.shape[:2]
+                occ_m = np.zeros((mh, mw), dtype=np.uint8)
+                occ_m[12:32, 34:48] = 1
+                occ_m[target_m] = 0
+                return [occ_m]
+
+        class FakePipe:
+            def __call__(self, **kwargs):
+                return SimpleNamespace(images=[Image.new("RGB", (512, 512), (120, 140, 170))])
+
+        fake_torch = types.ModuleType("torch")
+        fake_torch.Generator = lambda device="cpu": SimpleNamespace(manual_seed=lambda s: s)
+        fake_torch.inference_mode = contextlib.nullcontext
+        fake_torch.cat = lambda tensors, dim=0: tensors[0]
+
+        old_torch = sys.modules.get("torch")
+        sys.modules["torch"] = fake_torch
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                for name, arr in (
+                    ("image.png", image),
+                    ("visible.png", gt_vis.astype(np.uint8) * 255),
+                    ("hidden.png", gt_occ.astype(np.uint8) * 255),
+                    ("amodal.png", gt_amodal.astype(np.uint8) * 255),
+                ):
+                    Image.fromarray(arr).save(root / name)
+                record = dict(
+                    sample_id="dev_auto_1",
+                    split="dev",
+                    name="chair",
+                    hidden_ratio=0.4,
+                    image="image.png",
+                    visible_mask="visible.png",
+                    gt_hidden="hidden.png",
+                    gt_amodal="amodal.png",
+                )
+
+                received_visible_args = []
+
+                class AutoBackendWrapper:
+                    def __init__(self, empty=False):
+                        models = SimpleNamespace(
+                            device="cpu",
+                            ram_plus=FakeRAM(),
+                            openai_clip=FakeCLIP(),
+                            gdino=FakeGDINO(empty=empty),
+                            sam=FakeSAM(),
+                            instaorder=FakeInstaOrder(),
+                            pipe=FakePipe(),
+                        )
+                        self.completer = Proposed(models, cfg)
+                        self.job = None
+
+                    def begin_sample(self, job):
+                        self.job = Path(job)
+
+                    def complete(self, img, visible, label, occluded_mask=None):
+                        received_visible_args.append(visible)
+                        return self.completer.complete(
+                            image=img,
+                            visible_mask=visible,
+                            text_query=label,
+                            job_dir=self.job,
+                            occluded_mask=occluded_mask,
+                        )
+
+                profile_dir = root / "runs" / "proposed_auto" / "1234567890abcdef"
+                res, skipped = run_one(record, root, profile_dir, cfg, AutoBackendWrapper(empty=False), "1234567890abcdef")
+                self.assertFalse(skipped)
+                self.assertIsNone(received_visible_args[0])
+                self.assertIn(0.15, gdino_thresholds)
+                self.assertFalse(res["trace"]["visible_pred_empty"])
+                self.assertGreater(res["metrics"]["visible_iou"], 0.5)
+                job_dir = next(profile_dir.glob("dev_auto_1/*"))
+                self.assertTrue((job_dir / "pred_visible.png").is_file())
+                self.assertTrue((job_dir / "auto_seg_debug.jpg").is_file())
+                self.assertTrue((job_dir / "auto_segmentation.json").is_file())
+
+                eval_dir, rows = evaluate_profile(
+                    profile_dir,
+                    [record],
+                    device="cpu",
+                    evaluate=lambda *a, **kw: {"CLIP_score": 25.0, "SSIM": 0.95},
+                )
+                agg = json.loads((eval_dir / "aggregate.json").read_text(encoding="utf-8"))
+                self.assertIn("visible_iou", agg["overall"]["metrics"])
+                self.assertAlmostEqual(
+                    agg["overall"]["metrics"]["visible_iou"]["mean"],
+                    res["metrics"]["visible_iou"],
+                )
+
+                # Verify empty detection after fallback logs visible_pred_empty=True and does not crash
+                empty_profile = root / "runs" / "proposed_auto" / "fedcba0987654321"
+                res_empty, _ = run_one(record, root, empty_profile, cfg, AutoBackendWrapper(empty=True), "fedcba0987654321")
+                self.assertTrue(res_empty["trace"]["visible_pred_empty"])
+                self.assertEqual(res_empty["metrics"]["visible_iou"], 0.0)
+        finally:
+            if old_torch is None:
+                sys.modules.pop("torch", None)
+            else:
+                sys.modules["torch"] = old_torch
+
 
 if __name__ == "__main__":
     unittest.main()

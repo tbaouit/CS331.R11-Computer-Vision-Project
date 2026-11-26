@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.eval.appearance_metrics import POLICY, PROTOCOL, compute_visible_appearance_metrics
 from src.evaluation.backups import auto_restore_drive_backups
-from src.eval.metrics import compute_appearance_coherence_metrics
+from src.eval.metrics import compute_appearance_coherence_metrics, iou
 from src.evaluation.reporting import occlusion_bin, write_json, write_reports
 from src.evaluation.runner import read_mask, read_rgb, sha
 from src.vision.image_ops import binary_dilate
@@ -80,6 +80,11 @@ def evaluate_profile(profile, records, device="cuda", continue_on_error=False, e
                     metrics = evaluate(image, output, visible, record.get("name", ""), device=device)
                     if any(v is None or not math.isfinite(v) for v in metrics.values()):
                         raise ValueError("Appearance evaluator returned missing or non-finite scores")
+                    if (job / "pred_visible.png").is_file():
+                        pred_visible = read_mask(job / "pred_visible.png")
+                        metrics["visible_iou"] = iou(pred_visible, visible)
+                    elif isinstance(result.get("metrics", {}).get("visible_iou"), (int, float)):
+                        metrics["visible_iou"] = float(result["metrics"]["visible_iou"])
                     # Reference-free diagnostic on the actual reconstructed region, not hidden RGB accuracy.
                     hidden = amodal & ~visible
                     coherence = compute_appearance_coherence_metrics(visible, hidden, output)

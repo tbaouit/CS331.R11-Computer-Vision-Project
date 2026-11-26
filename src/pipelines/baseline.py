@@ -93,7 +93,7 @@ class Baseline:
     def complete(
         self,
         image: np.ndarray,
-        visible_mask: np.ndarray,
+        visible_mask: np.ndarray | None,
         occluded_mask: np.ndarray,
         label: str = "",
         job_dir: Path | None = None,
@@ -101,9 +101,48 @@ class Baseline:
         if occluded_mask is None:
             raise ValueError(f"{self.baseline_name} requires an input hidden mask")
         started = time.perf_counter()
-        canvas, vis, occ, amodal, roi, inpaint_region = prepare_direct_inputs(image, visible_mask, occluded_mask)
         policy = self.config.get("text_query_policy", "dataset_object_name")
         active_label = label if policy == "dataset_object_name" else ""
+        auto_mode = (self.config.get("visible_mask_source", "gt") == "auto") or (visible_mask is None)
+        auto_meta = None
+        if auto_mode:
+            from src.stages.openworld_completion import predict_auto_visible_mask
+
+            auto_seg = predict_auto_visible_mask(self.models, Image.fromarray(image), active_label or label, self.config)
+            visible_mask = np.asarray(auto_seg["pred_visible_mask"], dtype=bool)
+            auto_meta = {k: v for k, v in auto_seg.items() if k != "pred_visible_mask"}
+            if job_dir is not None:
+                Path(job_dir).mkdir(parents=True, exist_ok=True)
+                (Path(job_dir) / "auto_segmentation.json").write_text(
+                    json.dumps(auto_meta, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            if auto_seg["visible_pred_empty"]:
+                h, w = image.shape[:2]
+                empty_mask = np.zeros((h, w), dtype=bool)
+                rgba = finalize_rgba(np.full_like(image, 255), empty_mask, h, w)
+                pad = dict(needs_outpaint=False, pad_top=0, pad_bottom=0, pad_left=0, pad_right=0)
+                trace = dict(
+                    pad_info=pad,
+                    pipeline_mode="baseline",
+                    visible_mask_source="auto",
+                    visible_pred_empty=True,
+                    auto_segmentation=auto_meta,
+                    backend=self.baseline_name,
+                    seconds=round(time.perf_counter() - started, 3),
+                )
+                return dict(
+                    inpainted_rgba=rgba,
+                    amodal_mask=empty_mask,
+                    pred_visible_mask=empty_mask,
+                    visible_pred_empty=True,
+                    auto_segmentation=auto_meta,
+                    final_score=None,
+                    critic_accepted=None,
+                    critique_history=[],
+                    _trace=trace,
+                )
+            occluded_mask = np.asarray(occluded_mask, dtype=bool) & ~visible_mask
+        canvas, vis, occ, amodal, roi, inpaint_region = prepare_direct_inputs(image, visible_mask, occluded_mask)
         prompt = build_baseline_prompt(active_label)
         negative = self.config.get("negative_prompt", DEFAULT_NEGATIVE_PROMPT)
         seed = int(self.config.get("seed", 42))
@@ -155,10 +194,16 @@ class Baseline:
         return dict(
             inpainted_rgba=rgba,
             amodal_mask=amodal,
+            pred_visible_mask=vis,
+            visible_pred_empty=False,
+            auto_segmentation=auto_meta,
             final_score=None,
             critique_history=[],
             _trace=dict(
                 backend=f"{self.baseline_name} (single-pass SD2, input hidden mask + class label)",
+                visible_mask_source="auto" if auto_mode else "gt",
+                visible_pred_empty=False,
+                auto_segmentation=auto_meta,
                 pad_info={},
                 synthesis_attempts=1,
                 settings=settings,

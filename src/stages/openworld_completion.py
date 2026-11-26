@@ -126,6 +126,112 @@ def parse_phrase_and_score(pred_phrase: str) -> tuple[str, float]:
     return pred_phrase.strip(), 1.0
 
 
+def _slice_single_box(boxes_filt, index: int):
+    """Extract a 1-row box tensor/array `[1, 4]` at `index` across PyTorch tensors and test doubles."""
+    try:
+        sliced = boxes_filt[index : index + 1]
+        if hasattr(sliced, "size") and int(sliced.size(0)) == 1:
+            return sliced
+    except Exception:
+        pass
+    arr = getattr(boxes_filt, "arr", None)
+    if arr is not None:
+        return type(boxes_filt)(arr[index : index + 1])
+    return boxes_filt
+
+
+def _box_cxcywh_to_xyxy_pixels(box_row, width: int, height: int) -> list[float]:
+    """Convert normalized `[cx, cy, w, h]` box to clamped pixel `[x1, y1, x2, y2]`."""
+    try:
+        if hasattr(box_row, "cpu") and hasattr(box_row.cpu(), "tolist"):
+            vals = box_row.cpu().tolist()
+        elif hasattr(box_row, "arr"):
+            vals = np.asarray(box_row.arr, dtype=np.float32).reshape(-1).tolist()
+        else:
+            vals = np.asarray(box_row, dtype=np.float32).reshape(-1).tolist()
+        if isinstance(vals[0], list):
+            vals = vals[0]
+        cx, cy, bw, bh = [float(v) for v in vals[:4]]
+    except Exception:
+        return [0.0, 0.0, float(width), float(height)]
+    x1 = max(0.0, min(float(width), (cx - bw / 2.0) * width))
+    y1 = max(0.0, min(float(height), (cy - bh / 2.0) * height))
+    x2 = max(x1, min(float(width), (cx + bw / 2.0) * width))
+    y2 = max(y1, min(float(height), (cy + bh / 2.0) * height))
+    return [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
+
+
+def predict_auto_visible_mask(
+    models,
+    img_pil: Image.Image,
+    object_name: str,
+    config: dict,
+) -> dict:
+    """Predict target `visible_mask` automatically using GroundingDINO + cached SAM ViT-H."""
+    w_img, h_img = img_pil.size
+    query = (object_name or "object").strip() or "object"
+    box_thresh = float(config.get("gdino_box_thresh", 0.35))
+    text_thresh = float(config.get("gdino_text_thresh", 0.35))
+    fallback_thresh = float(config.get("auto_visible_fallback_thresh", 0.15))
+
+    gdino = models.gdino
+    boxes_filt, pred_phrases = gdino.detect(
+        img_pil,
+        query,
+        box_thresh=box_thresh,
+        text_thresh=text_thresh,
+    )
+    used_fallback = False
+    num_boxes = int(boxes_filt.size(0)) if boxes_filt is not None and hasattr(boxes_filt, "size") else 0
+    if num_boxes == 0 and fallback_thresh < box_thresh:
+        boxes_filt, pred_phrases = gdino.detect(
+            img_pil,
+            query,
+            box_thresh=fallback_thresh,
+            text_thresh=min(text_thresh, fallback_thresh),
+        )
+        used_fallback = True
+        num_boxes = int(boxes_filt.size(0)) if boxes_filt is not None and hasattr(boxes_filt, "size") else 0
+
+    if num_boxes > 0:
+        scores = [parse_phrase_and_score(p)[1] for p in pred_phrases] if pred_phrases else [1.0] * num_boxes
+        best_idx = int(np.argmax(scores[:num_boxes]))
+        best_phrase = pred_phrases[best_idx] if best_idx < len(pred_phrases) else query
+        parsed_label, best_score = parse_phrase_and_score(best_phrase)
+        best_box = _slice_single_box(boxes_filt, best_idx)
+        bbox_xyxy = _box_cxcywh_to_xyxy_pixels(best_box, w_img, h_img)
+
+        _, masks_np = models.sam.segment_boxes(img_pil, best_box)
+        if masks_np is not None and len(masks_np) > 0:
+            pred_mask = (np.asarray(masks_np[0]) > 0).astype(bool)
+        else:
+            pred_mask = np.zeros((h_img, w_img), dtype=bool)
+    else:
+        pred_mask = np.zeros((h_img, w_img), dtype=bool)
+        bbox_xyxy = None
+        best_score = 0.0
+        parsed_label = ""
+
+    visible_pred_empty = not bool(pred_mask.any())
+    if visible_pred_empty:
+        print(f"[AutoSeg] visible_pred_empty: true (object_name={query!r})", flush=True)
+    else:
+        print(
+            f"[AutoSeg] visible_pred_empty: false (object_name={query!r}, score={best_score:.3f}, "
+            f"fallback={used_fallback}, pixels={int(pred_mask.sum())})",
+            flush=True,
+        )
+    return {
+        "pred_visible_mask": pred_mask,
+        "visible_pred_empty": visible_pred_empty,
+        "pred_bbox_xyxy": bbox_xyxy,
+        "pred_score": float(best_score),
+        "pred_phrase": parsed_label,
+        "used_fallback_thresh": used_fallback,
+        "query": query,
+    }
+
+
 def segment_with_cached_sam(
     models,
     img_pil: Image.Image,

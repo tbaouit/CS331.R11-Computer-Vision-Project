@@ -25,6 +25,7 @@ from src.stages.openworld_completion import (
     alpha_blending,
     canvas_center_slice,
     handlemask,
+    predict_auto_visible_mask,
     run_progressive_iteration,
     segment_with_cached_sam,
     shrink_edges_to_transparent,
@@ -113,16 +114,14 @@ class Proposed:
     def complete(
         self,
         image: np.ndarray,
-        visible_mask: np.ndarray,
+        visible_mask: Optional[np.ndarray] = None,
         text_query: str = "",
         job_dir: Optional[Path] = None,
         occluded_mask: Optional[np.ndarray] = None,
     ) -> dict:
         t0 = time.perf_counter()
-        vis = np.asarray(visible_mask, dtype=bool)
-        if image.dtype != np.uint8 or image.shape != (*vis.shape, 3) or not vis.any():
-            raise ValueError("Proposed requires RGB uint8 and a nonempty matching visible mask")
-        occ_gt = (np.asarray(occluded_mask, dtype=bool) & ~vis) if occluded_mask is not None else None
+        if image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] != 3:
+            raise ValueError("Proposed requires RGB uint8 image")
         h, w = image.shape[:2]
         img_pil = Image.fromarray(image)
         job = Path(job_dir) if job_dir is not None else None
@@ -134,6 +133,81 @@ class Proposed:
                 (job / name).write_text(
                     json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8"
                 )
+
+        mask_source = self.config.get("visible_mask_source", "gt")
+        auto_mode = (mask_source == "auto") or (visible_mask is None)
+        auto_seg_info = None
+        if auto_mode:
+            auto_seg_info = predict_auto_visible_mask(self.models, img_pil, text_query, self.config)
+            vis = np.asarray(auto_seg_info["pred_visible_mask"], dtype=bool)
+            visible_pred_empty = bool(auto_seg_info["visible_pred_empty"])
+            save_json(
+                "auto_segmentation.json",
+                {k: v for k, v in auto_seg_info.items() if k != "pred_visible_mask"},
+            )
+            if visible_pred_empty:
+                amodal_out = np.zeros((h, w), dtype=bool)
+                empty_rgb = np.full_like(image, 255)
+                rgba = finalize_rgba(empty_rgb, amodal_out, h, w)
+                pad = dict(needs_outpaint=False, pad_top=0, pad_bottom=0, pad_left=0, pad_right=0)
+                save_json("outpainting.json", pad)
+                save_json(
+                    "prompt_selection.json",
+                    {
+                        "prompt": f"a {(text_query or 'object').strip() or 'object'}",
+                        "selected_class": (text_query or "object").strip() or "object",
+                        "ram_tags": [],
+                        "text_query": text_query,
+                        "visible_pred_empty": True,
+                    },
+                )
+                save_json(
+                    "proposed_selection.json",
+                    {
+                        "selected_attempt": 0,
+                        "outcome": "visible_pred_empty",
+                        "visible_pred_empty": True,
+                        "critic_accepted": None,
+                        "synthesis_attempts": 0,
+                        "inpaint_prompt": f"a {(text_query or 'object').strip() or 'object'}",
+                    },
+                )
+                trace = {
+                    "pad_info": pad,
+                    "pipeline_mode": "proposed",
+                    "visible_mask_source": "auto",
+                    "visible_pred_empty": True,
+                    "auto_segmentation": {k: v for k, v in auto_seg_info.items() if k != "pred_visible_mask"},
+                    "backend": "Open-World Amodal (RAM++ + CLIP + Grounded-SAM + InstaOrder + SD2)",
+                    "selected_class": (text_query or "object").strip() or "object",
+                    "ram_classes": [],
+                    "synthesis_attempts": 0,
+                    "max_iter": int(self.config.get("max_iter", 3)),
+                    "iterations": [],
+                    "outcome": "visible_pred_empty",
+                    "critic_accepted": None,
+                    "critique_history": [],
+                    "seconds": round(time.perf_counter() - t0, 3),
+                    "coherence": {"seam_mae": 0.0, "color_hist_sim": 0.0},
+                }
+                return {
+                    "inpainted_rgba": rgba,
+                    "amodal_mask": amodal_out,
+                    "pred_visible_mask": vis,
+                    "visible_pred_empty": True,
+                    "auto_segmentation": {k: v for k, v in auto_seg_info.items() if k != "pred_visible_mask"},
+                    "final_score": None,
+                    "critic_accepted": None,
+                    "critique_history": [],
+                    "_trace": trace,
+                }
+        else:
+            vis = np.asarray(visible_mask, dtype=bool)
+            if image.shape != (*vis.shape, 3) or not vis.any():
+                raise ValueError("Proposed requires RGB uint8 and a nonempty matching visible mask")
+            visible_pred_empty = False
+
+        occ_gt = (np.asarray(occluded_mask, dtype=bool) & ~vis) if occluded_mask is not None else None
 
         # 1. RAM++ scene tagging & CLIP ViT-B/32 prompt selection on the given visible_mask
         classes, inpaint_prompt, masked_image_np = self._select_prompt_with_ram_and_clip(
@@ -226,9 +300,17 @@ class Proposed:
 
         pad = dict(needs_outpaint=False, pad_top=0, pad_bottom=0, pad_left=0, pad_right=0)
         save_json("outpainting.json", pad)
+        auto_meta = (
+            {k: v for k, v in auto_seg_info.items() if k != "pred_visible_mask"}
+            if auto_seg_info is not None
+            else None
+        )
         trace = {
             "pad_info": pad,
             "pipeline_mode": "proposed",
+            "visible_mask_source": "auto" if auto_mode else "gt",
+            "visible_pred_empty": False,
+            "auto_segmentation": auto_meta,
             "backend": "Open-World Amodal (RAM++ + CLIP + Grounded-SAM + InstaOrder + SD2)",
             "selected_class": inpaint_prompt,
             "ram_classes": classes,
@@ -246,6 +328,7 @@ class Proposed:
             {
                 "selected_attempt": int(query_obj.iter_id),
                 "outcome": "completed",
+                "visible_pred_empty": False,
                 "critic_accepted": None,
                 "synthesis_attempts": int(query_obj.iter_id),
                 "retries": max(0, int(query_obj.iter_id) - 1),
@@ -254,6 +337,9 @@ class Proposed:
         return {
             "input_image": image,
             "visible_mask": vis,
+            "pred_visible_mask": vis,
+            "visible_pred_empty": False,
+            "auto_segmentation": auto_meta,
             "amodal_mask": amodal_out,
             "predicted_amodal_mask": predicted_amodal,
             "inpainted_rgba": rgba,

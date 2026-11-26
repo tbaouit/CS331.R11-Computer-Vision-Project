@@ -72,12 +72,26 @@ def main():
     parser.add_argument("--continue-on-error", action="store_true", help="Record sample errors and continue; CUDA OOM still stops")
     parser.add_argument("--validate-only", action="store_true", help="Validate prepared data without importing torch or loading models")
     parser.add_argument("--profile-output", type=Path, help="Write the exact successful profile ID for notebook follow-up cells")
+    parser.add_argument(
+        "--visible-mask-source",
+        choices=("gt", "auto"),
+        default="gt",
+        help="Source for target object visible_mask: 'gt' (COCO-A ground truth) or 'auto' (GroundingDINO + SAM prediction)",
+    )
     args = parser.parse_args()
     config_path = args.config or ROOT / "configs" / ((args.mode or "baseline") + ".json")
     config = json.loads(config_path.read_text(encoding="utf-8"))
+    visible_mask_source = args.visible_mask_source or config.get("visible_mask_source", "gt")
+    if visible_mask_source not in ("gt", "auto"):
+        raise ValueError("--visible-mask-source must be 'gt' or 'auto'")
+    if visible_mask_source == "auto" or "visible_mask_source" in config:
+        config["visible_mask_source"] = visible_mask_source
     from src.pipelines.backend import validate_experiment_config
     validate_experiment_config(config)
-    args.runs_root = args.runs_root or ROOT / "outputs/runs" / config["pipeline_mode"]
+    default_mode_dir = config["pipeline_mode"] if visible_mask_source == "gt" else f"{config['pipeline_mode']}_auto"
+    args.runs_root = args.runs_root or ROOT / "outputs/runs" / default_mode_dir
+    if args.profile_state and visible_mask_source == "auto" and not args.profile_state.stem.endswith("_auto"):
+        args.profile_state = args.profile_state.with_name(f"{args.profile_state.stem}_auto{args.profile_state.suffix}")
     records = json.loads(args.manifest.read_text(encoding="utf-8"))
     if args.limit < 1: raise ValueError("--limit must be positive")
     records = records[:args.limit]
@@ -137,7 +151,11 @@ def main():
                         backend.begin_sample(job)
                     def complete(self, *values, **kwargs): return backend.complete(*values, **kwargs)
                 lazy = LazyBackend()
-                print(f"Profile: {profile} | Mode: {config['pipeline_mode']} | Targets: {len(records)}", flush=True)
+                print(
+                    f"Profile: {profile} | Mode: {config['pipeline_mode']} | "
+                    f"VisibleMaskSource: {visible_mask_source} | Targets: {len(records)}",
+                    flush=True,
+                )
                 for idx, record in enumerate(records, start=1):
                     dirty_backup = True
                     failed = None
