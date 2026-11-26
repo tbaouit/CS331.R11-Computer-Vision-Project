@@ -209,6 +209,61 @@ class AppearanceEvaluationTests(unittest.TestCase):
             self.assertEqual(outputs[0], outputs[1])
             self.assertNotEqual(outputs[0], [t.sample_id for t in targets[:25]])
 
+    def test_reeval_full_object_paper_protocol_unmasked_white_bg_and_subset_breakdown(self):
+        from scripts.reeval_full_object_metrics import prepare_paper_image_pair, reevaluate_full_object_protocol
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record1, base_profile, _ = self.fixture(root)
+            record2 = dict(record1, sample_id="dev_light", hidden_ratio=0.05)
+            run_one(record2, root, base_profile, dict(critique_threshold=7), self.fixture(root)[2], "profile")
+
+            prop_profile = root / "runs/proposed_profile"
+            _, _, backend2 = self.fixture(root)
+            run_one(record1, root, prop_profile, dict(critique_threshold=7), backend2, "prop")
+            run_one(record2, root, prop_profile, dict(critique_threshold=7), backend2, "prop")
+
+            job_dir = next(prop_profile.glob("dev_1/*/result.json")).parent
+            vis_crop, comp_crop, vis_full, comp_full = prepare_paper_image_pair(job_dir)
+            self.assertEqual(vis_crop.shape, comp_crop.shape)
+            self.assertGreaterEqual(min(vis_crop.shape[:2]), 32)
+            # Outside the amodal mask must be plain white (255), NOT black (0)
+            self.assertTrue(np.all(vis_full[0, 0] == 255))
+            self.assertTrue(np.all(comp_full[0, 0] == 255))
+
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text(json.dumps([record1, record2]), encoding="utf-8")
+            out_json = root / "comparisons/full_820_paper_protocol_metrics.json"
+
+            def fake_eval_batch(pairs, device="cpu", batch_size=32):
+                return [
+                    {
+                        "LPIPS": 0.12,
+                        "Feature_Similarity": 0.89,
+                        "VGG_similarity": 0.78,
+                        "SSIM": 0.84,
+                        "CLIP_score": 26.4,
+                        "DINO_similarity": 0.75,
+                    }
+                    for _ in pairs
+                ]
+
+            with patch("scripts.reeval_full_object_metrics.evaluate_batch_pairs", side_effect=fake_eval_batch):
+                report = reevaluate_full_object_protocol(
+                    manifest_path=manifest_path,
+                    baseline_dir=base_profile,
+                    proposed_dir=prop_profile,
+                    output_json=out_json,
+                    device="cpu",
+                    min_occlusion=0.15,
+                )
+            self.assertTrue(out_json.is_file())
+            self.assertTrue(out_json.with_suffix(".csv").is_file())
+            self.assertEqual(report["evaluated_samples"]["proposed"], 2)
+            self.assertEqual(report["occluded_subset_count"]["proposed"], 1)
+            self.assertAlmostEqual(report["overall"]["proposed"]["LPIPS"]["mean"], 0.12)
+            self.assertAlmostEqual(report["occluded_subset_ge_15pct"]["proposed"]["SSIM"]["mean"], 0.84)
+
 
 if __name__ == "__main__":
     unittest.main()
