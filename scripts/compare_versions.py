@@ -77,7 +77,11 @@ def compare_versions(records, profiles, output, fid_reference=None, device="cuda
         entry = {"sample_id": sid, "category": record.get("name"), "hidden_ratio": record.get("hidden_ratio")}
         for key in profiles:
             job, result, current = jobs[key][sid]
-            for name in ("input.png", "visible.png", "occluded_input.png", "amodal.png"):
+            auto_mode = configs[key].get("visible_mask_source") == "auto" or configs["baseline"].get("visible_mask_source") == "auto"
+            check_names = ("input.png", "visible.png", "occluded_input.png") if auto_mode else (
+                "input.png", "visible.png", "occluded_input.png", "amodal.png"
+            )
+            for name in check_names:
                 read = read_rgb if name == "input.png" else read_mask
                 if current[name] != hashes[name] and not np.array_equal(read(job / name), read(base / name)):
                     raise ValueError(f"Input or mask differs: {key}/{sid}/{name}")

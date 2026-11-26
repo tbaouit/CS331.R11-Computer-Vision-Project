@@ -105,14 +105,19 @@ def evaluate_profile(profile, records, device="cuda", continue_on_error=False, e
             if not continue_on_error or "out of memory" in str(error).lower():
                 fatal = error
         rows.append(row)
-        report = write_reports(destination, rows, dict(**settings, generation_profile=profile.name,
-                                                      requested_manifest_samples=len(records), subset_id=subset_id))
         print(f"[Metrics {index}/{len(records)}] {sample_id}: {row['status']}" +
               (" (resumed)" if cached else "") + (f" — {row['error']}" if row.get("error") else ""), flush=True)
+        # Write aggregate JSON/CSV periodically (every 25 samples) and on completion/error to avoid O(N^2) Google Drive FUSE I/O.
+        if fatal or index == len(records) or index % 25 == 0:
+            report = write_reports(destination, rows, dict(**settings, generation_profile=profile.name,
+                                                          requested_manifest_samples=len(records), subset_id=subset_id))
         if checkpoint and not cached and backup_every > 0 and index % backup_every == 0:
             checkpoint()
         if fatal:
             raise RuntimeError(f"Evaluation stopped; partial results saved in {destination}") from fatal
+    if not records:
+        report = write_reports(destination, rows, dict(**settings, generation_profile=profile.name,
+                                                      requested_manifest_samples=len(records), subset_id=subset_id))
     print("Evaluation:", destination, flush=True)
     print(json.dumps(report["overall"], indent=2), flush=True)
     return destination, rows
