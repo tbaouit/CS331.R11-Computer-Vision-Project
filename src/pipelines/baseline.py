@@ -156,6 +156,16 @@ class Baseline:
                 roi_occ = np.zeros((h_img, w_img), dtype=bool)
                 roi_occ[ey1:ey2, ex1:ex2] = True
                 occluded_mask = roi_occ & ~visible_mask
+                if not occluded_mask.any():
+                    eroded = binary_erode(visible_mask, 4)
+                    if eroded.any() and not np.array_equal(eroded, visible_mask):
+                        occluded_mask = visible_mask & ~eroded
+                        visible_mask = eroded
+                    else:
+                        occluded_mask = np.zeros_like(visible_mask)
+                        occluded_mask[0, 0] = True
+                        visible_mask = visible_mask.copy()
+                        visible_mask[0, 0] = False
             else:
                 occluded_mask = np.asarray(occluded_mask, dtype=bool) & ~visible_mask
         canvas, vis, occ, amodal, roi, inpaint_region = prepare_direct_inputs(image, visible_mask, occluded_mask)

@@ -83,17 +83,20 @@ def evaluate_profile(profile, records, device="cuda", continue_on_error=False, e
                     metrics = evaluate(image, output, visible, record.get("name", ""), device=device)
                     if any(v is None or not math.isfinite(v) for v in metrics.values()):
                         raise ValueError("Appearance evaluator returned missing or non-finite scores")
+                    vis_for_coherence = visible
                     if (job / "pred_visible.png").is_file():
                         pred_visible = read_mask(job / "pred_visible.png")
                         metrics["visible_iou"] = iou(pred_visible, visible)
+                        if pred_visible.any():
+                            vis_for_coherence = pred_visible
                     elif isinstance(result.get("metrics", {}).get("visible_iou"), (int, float)):
                         metrics["visible_iou"] = float(result["metrics"]["visible_iou"])
                     # Reference-free diagnostic on the actual reconstructed region, not hidden RGB accuracy.
-                    hidden = amodal & ~visible
-                    coherence = compute_appearance_coherence_metrics(visible, hidden, output)
+                    hidden = amodal & ~vis_for_coherence
+                    coherence = compute_appearance_coherence_metrics(vis_for_coherence, hidden, output)
                     if not hidden.any():
                         coherence = dict(seam_mae=None, color_hist_sim=None)
-                    elif not (hidden & binary_dilate(visible, 2)).any():
+                    elif not (hidden & binary_dilate(vis_for_coherence, 2)).any():
                         coherence["seam_mae"] = None
                     metrics.update(coherence)
                     row.update(status="completed", metrics=metrics,

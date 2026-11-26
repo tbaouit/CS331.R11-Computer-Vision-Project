@@ -10,6 +10,8 @@ from src.evaluation.runner import read_mask
 
 # Lấy cùng crop vuông theo amodal mask cho tất cả cột của một mẫu.
 def object_box(mask):
+    if not mask.any():
+        return 0, 0, mask.shape[1], mask.shape[0]
     roi = compute_square_roi(mask, mask.shape, context_scale=1.2, min_crop=32)
     x, y, side = roi["x0"], roi["y0"], roi["size"]
     return x, y, x + side, y + side
@@ -49,7 +51,8 @@ def comparison_grid(output, records, jobs, count=20, seed=42):
         for row, record in enumerate(group):
             sid = record["sample_id"]
             first = jobs["baseline"][sid][0]
-            box = object_box(read_mask(first / "amodal.png"))
+            amodal_m = read_mask(first / "amodal.png")
+            box = object_box(amodal_m if amodal_m.any() else read_mask(first / "visible.png"))
             paths = [first / name for name in ("input.png", "visible.png", "amodal.png")]
             paths += [jobs[key][sid][0] / "completion.png" for key in ("baseline", "proposed")]
             y = row * 277

@@ -359,6 +359,70 @@ class GenerationTests(unittest.TestCase):
                 res_empty, _ = run_one(record, root, empty_profile, cfg, AutoBackendWrapper(empty=True), "fedcba0987654321")
                 self.assertTrue(res_empty["trace"]["visible_pred_empty"])
                 self.assertEqual(res_empty["metrics"]["visible_iou"], 0.0)
+
+                # Verify 100% Zero-GT Baseline (visible=None, occluded_mask=None) + compare_versions end-to-end
+                from scripts.compare_versions import compare_versions
+
+                base_cfg = baseline_config()
+                base_cfg["visible_mask_source"] = "auto"
+
+                class AutoBaselineWrapper:
+                    def __init__(self, empty=False):
+                        models = SimpleNamespace(
+                            device="cpu",
+                            gdino=FakeGDINO(empty=empty),
+                            sam=FakeSAM(),
+                            pipe=FakePipe(),
+                        )
+                        self.completer = Baseline(models, base_cfg)
+                        self.job = None
+
+                    def begin_sample(self, job):
+                        self.job = Path(job)
+
+                    def complete(self, img, visible, label, occluded_mask=None):
+                        assert visible is None and occluded_mask is None
+                        return self.completer.complete(
+                            image=img,
+                            visible_mask=visible,
+                            occluded_mask=occluded_mask,
+                            label=label,
+                            job_dir=self.job,
+                        )
+
+                base_profile_dir = root / "runs" / "baseline_auto" / "aaaa111122223333"
+                with patch("src.pipelines.baseline.run_inpaint_roi_pass", return_value=np.full_like(image, 150)):
+                    res_base, _ = run_one(record, root, base_profile_dir, base_cfg, AutoBaselineWrapper(empty=False), "aaaa111122223333")
+                self.assertFalse(res_base["trace"]["visible_pred_empty"])
+                evaluate_profile(
+                    base_profile_dir,
+                    [record],
+                    device="cpu",
+                    evaluate=lambda *a, **kw: {"CLIP_score": 24.0, "SSIM": 0.91},
+                )
+                cmp_report = compare_versions(
+                    [record],
+                    {"baseline": base_profile_dir, "proposed": profile_dir},
+                    root / "cmp_zero_gt",
+                )
+                self.assertIn("visible_iou", cmp_report["metrics"]["baseline"])
+                self.assertIn("visible_iou", cmp_report["metrics"]["proposed"])
+
+                # Also verify compare_versions does not crash when both have empty predicted amodal masks
+                empty_base_profile = root / "runs" / "baseline_auto" / "bbbb111122223333"
+                run_one(record, root, empty_base_profile, base_cfg, AutoBaselineWrapper(empty=True), "bbbb111122223333")
+                for p_dir in (empty_base_profile, empty_profile):
+                    evaluate_profile(
+                        p_dir,
+                        [record],
+                        device="cpu",
+                        evaluate=lambda *a, **kw: {"CLIP_score": 20.0, "SSIM": 0.80},
+                    )
+                compare_versions(
+                    [record],
+                    {"baseline": empty_base_profile, "proposed": empty_profile},
+                    root / "cmp_empty_zero_gt",
+                )
         finally:
             if old_torch is None:
                 sys.modules.pop("torch", None)
