@@ -43,9 +43,10 @@ def crop_original(array, pad, original_shape):
 
 
 # Tạo ảnh xem nhanh đầu vào, mask và kết quả của một mẫu.
-def preview(image, visible, amodal, rgba, path, mask_label="Amodal prediction"):
+def preview(image, visible, amodal, rgba, path, mask_label="Amodal prediction", target_name=""):
     tiles = [image, visible.astype(np.uint8) * 255, amodal.astype(np.uint8) * 255, rgba]
-    labels = ["Input", "Visible input", mask_label, "Completion"]
+    tag = f" [{target_name}]" if target_name else ""
+    labels = [f"Input{tag}", "Visible input", mask_label, f"Completion{tag}"]
     canvas = Image.new("RGB", (1120, 310), "white")
     draw = ImageDraw.Draw(canvas)
     for index, (tile, label) in enumerate(zip(tiles, labels)):
@@ -55,7 +56,10 @@ def preview(image, visible, amodal, rgba, path, mask_label="Amodal prediction"):
             bg.alpha_composite(pic)
             pic = bg.convert("RGB")
         pic.thumbnail((270, 270))
-        canvas.paste(pic, (index * 280 + (280 - pic.width) // 2, 30 + (270 - pic.height) // 2))
+        px = index * 280 + (280 - pic.width) // 2
+        py = 30 + (270 - pic.height) // 2
+        canvas.paste(pic, (px, py))
+        draw.rectangle([px - 1, py - 1, px + pic.width, py + pic.height], outline=(180, 180, 180), width=1)
         draw.text((index * 280 + 5, 8), label, fill="black")
     canvas.save(path)
 
@@ -233,8 +237,16 @@ def run_one(record, sample_root, output_root, config, backend, profile):
                 compute_visible_appearance_metrics(image, rgba[:, :, :3], visible, record.get("name", "object"),
                                                   device=config.get("appearance_metrics_device", "cpu"))
             )
-        mask_lbl = "Exact Amodal (Vis+Occ)" if oracle_mode else "Amodal prediction"
-        preview(image, pred_visible, amodal, rgba, job / "preview.jpg", mask_label=mask_lbl)
+        mask_lbl = "Amodal prediction (auto)" if auto_mode else ("Exact Amodal (Vis+Occ)" if oracle_mode else "Amodal prediction")
+        preview(
+            image,
+            pred_visible,
+            amodal,
+            rgba,
+            job / "preview.jpg",
+            mask_label=mask_lbl,
+            target_name=str(record.get("name", "") or ""),
+        )
         history = output.get("critique_history", [])
         result = dict(
             status="completed",

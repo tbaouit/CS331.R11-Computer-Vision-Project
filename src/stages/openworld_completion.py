@@ -50,6 +50,84 @@ def _erode_box(mask_u8: np.ndarray, ksize: int, iterations: int = 1) -> np.ndarr
     return out.astype(np.uint8)
 
 
+def _close_box(mask_u8: np.ndarray, ksize: int, iterations: int = 1) -> np.ndarray:
+    """Morphological closing with zero-padded borders so boundary regions do not shrink."""
+    pad = max(1, (ksize // 2) * iterations + 1)
+    padded = np.pad((mask_u8 > 0).astype(np.uint8), pad, mode="constant", constant_values=0)
+    dilated = _dilate_box(padded, ksize, iterations=iterations)
+    closed = _erode_box(dilated, ksize, iterations=iterations)
+    return closed[pad:-pad, pad:-pad].astype(np.uint8)
+
+
+def _fill_interior_holes(mask_u8: np.ndarray) -> np.ndarray:
+    """Fill all enclosed 0-holes inside a binary mask without altering its outer boundary."""
+    binary = (mask_u8 > 0).astype(np.uint8)
+    if not np.any(binary):
+        return binary
+    h, w = binary.shape[:2]
+    padded = np.pad(binary, 1, mode="constant", constant_values=0)
+    if cv2 is not None:
+        inv = (1 - padded).astype(np.uint8)
+        flood = inv.copy()
+        ff_mask = np.zeros((h + 4, w + 4), dtype=np.uint8)
+        cv2.floodFill(flood, ff_mask, (0, 0), 2)
+        holes = (flood == 1)[1:-1, 1:-1]
+        return np.maximum(binary, holes.astype(np.uint8))
+    visited = np.zeros_like(padded, dtype=bool)
+    q = deque([(0, 0)])
+    visited[0, 0] = True
+    while q:
+        cy, cx = q.popleft()
+        for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+            if 0 <= ny < h + 2 and 0 <= nx < w + 2 and not visited[ny, nx] and padded[ny, nx] == 0:
+                visited[ny, nx] = True
+                q.append((ny, nx))
+    holes = (~visited)[1:-1, 1:-1] & (binary == 0)
+    return np.maximum(binary, holes.astype(np.uint8))
+
+
+def _extract_concavity_and_hole_occluders(
+    query_mask: np.ndarray,
+    masks: np.ndarray | list[np.ndarray],
+    mask_id: int,
+) -> np.ndarray:
+    """Recover occluders sitting inside interior holes or deep concavities/notches of `query_mask`."""
+    q_u8 = (query_mask > 0).astype(np.uint8)
+    if not np.any(q_u8):
+        return np.zeros_like(q_u8)
+    h, w = q_u8.shape[:2]
+    x_min, x_max, y_min, y_max = find_mask_sides(q_u8)
+    bbox_mask = np.zeros((h, w), dtype=bool)
+    bbox_mask[x_min : x_max + 1, y_min : y_max + 1] = True
+
+    # 1. Enclosed interior holes of query_mask are guaranteed occluders on top of the object
+    filled = _fill_interior_holes(q_u8)
+    holes = (filled > 0) & ~(q_u8 > 0)
+
+    # 2. Narrow notches/concavities indenting into query_mask within its tight bounding box
+    closed = _close_box(q_u8, 25, iterations=2)
+    concavities = (closed > 0) & ~(q_u8 > 0) & bbox_mask
+
+    # 3. Any detected non-target foreground mask that touches query_mask and lies mostly inside its tight bbox
+    dilated_q = _dilate_box(q_u8, 5, iterations=1) > 0
+    in_bbox_occluders = np.zeros((h, w), dtype=bool)
+    max_occ_area = 0.35 * float(h * w)
+    for idx, m in enumerate(masks):
+        if idx == int(mask_id):
+            continue
+        m_bool = m > 0
+        m_area = float(m_bool.sum())
+        if m_area <= 0 or m_area > max_occ_area:
+            continue
+        if np.any(m_bool & dilated_q):
+            inside_ratio = float((m_bool & bbox_mask).sum()) / m_area
+            if inside_ratio >= 0.45 or np.any(m_bool & concavities):
+                in_bbox_occluders |= (m_bool & ~(q_u8 > 0))
+
+    combined = (holes | concavities | in_bbox_occluders) & ~(q_u8 > 0)
+    return combined.astype(np.uint8)
+
+
 @dataclass
 class QueryObjectState:
     """Mutable per-target state across progressive mixed-context diffusion iterations."""
@@ -283,7 +361,7 @@ def segment_with_cached_sam(
 
 
 def handlemask(masks: np.ndarray | list[np.ndarray]) -> list[np.ndarray]:
-    """Identify and extract additional unsegmented foreground regions while excluding giant scene backgrounds."""
+    """Identify and extract additional unsegmented foreground regions near the target object while excluding scene backgrounds."""
     if len(masks) == 0:
         return []
     h, w = masks[0].shape[:2]
@@ -292,7 +370,21 @@ def handlemask(masks: np.ndarray | list[np.ndarray]) -> list[np.ndarray]:
     for mask in masks:
         mask_sum = np.maximum(mask_sum, (mask > 0).astype(np.uint8))
 
-    new_mask = (1 - mask_sum).astype(np.uint8)
+    # Restrict unsegmented candidate search to the expanded bounding box of the target query mask (masks[-1])
+    # so unsegmented occluders touching the target are severed from distant walls/floors/streets.
+    query_ref = (masks[-1] > 0).astype(np.uint8)
+    if np.any(query_ref):
+        qx1, qx2, qy1, qy2 = find_mask_sides(query_ref)
+        pad_h = max(16, int(round((qx2 - qx1 + 1) * 0.25)))
+        pad_w = max(16, int(round((qy2 - qy1 + 1) * 0.25)))
+        bx1, bx2 = max(0, qx1 - pad_h), min(h, qx2 + 1 + pad_h)
+        by1, by2 = max(0, qy1 - pad_w), min(w, qy2 + 1 + pad_w)
+        roi_gate = np.zeros((h, w), dtype=np.uint8)
+        roi_gate[bx1:bx2, by1:by2] = 1
+    else:
+        roi_gate = np.ones((h, w), dtype=np.uint8)
+
+    new_mask = ((1 - mask_sum) * roi_gate).astype(np.uint8)
     eroded_mask = _erode_box(new_mask, 5, iterations=1)
     raw_components: list[np.ndarray] = []
     if cv2 is not None:
@@ -554,11 +646,13 @@ def check_occlusion_after_inpaint(
         )
 
     if amodal_segs is None or len(amodal_segs) == 0:
-        non_white_fg = np.any(comp_np < 250, axis=2).astype(np.uint8)
+        non_white_fg = np.any(comp_np < 248, axis=2).astype(np.uint8)
         fallback_seg = np.maximum(
             (crop_query_mask > 0).astype(np.uint8),
             np.logical_and(allowed_region > 0, non_white_fg > 0).astype(np.uint8),
         )
+        fallback_seg = np.logical_and(_fill_interior_holes(_close_box(fallback_seg, 5, iterations=1)) > 0, allowed_region > 0).astype(np.uint8)
+        fallback_seg = np.maximum(fallback_seg, (crop_query_mask > 0).astype(np.uint8))
         query_obj.amodal_segmentation = fallback_seg
         query_obj.img_canvas[crop_x_min:crop_x_max, crop_y_min:crop_y_max] = comp_np
         query_obj.query_mask_canvas[crop_x_min:crop_x_max, crop_y_min:crop_y_max] = fallback_seg
@@ -566,9 +660,16 @@ def check_occlusion_after_inpaint(
         return query_obj
 
     amodal_i, amodal_seg = filter_out_amodal_segmentation(crop_query_mask, amodal_segs)
-    # Clamp predicted amodal mask to the valid (visible | inpainted) region so it never leaks into un-inpainted background
+    # Clamp predicted amodal mask to the valid (visible | inpainted) region and retain non-white inpainted object pixels
+    # so SAM under-segmentation never punches white Swiss-cheese holes into the completed object.
     clamped_seg = np.logical_and(amodal_seg > 0, allowed_region > 0)
-    amodal_seg_u8 = np.maximum(clamped_seg.astype(np.uint8), (crop_query_mask > 0).astype(np.uint8))
+    non_white_inpaint = np.logical_and(allowed_region > 0, np.any(comp_np < 246, axis=2))
+    raw_union = np.maximum(
+        np.logical_or(clamped_seg, non_white_inpaint).astype(np.uint8),
+        (crop_query_mask > 0).astype(np.uint8),
+    )
+    closed_union = np.logical_and(_fill_interior_holes(_close_box(raw_union, 5, iterations=1)) > 0, allowed_region > 0)
+    amodal_seg_u8 = np.maximum(closed_union.astype(np.uint8), (crop_query_mask > 0).astype(np.uint8))
     query_obj.amodal_segmentation = amodal_seg_u8
 
     new_occluder_masks = models.instaorder.analyze_masks(comp_np, amodal_segs, amodal_i)
@@ -625,26 +726,31 @@ def run_progressive_iteration(
             gt_occ = (np.asarray(fallback_occluded_mask) > 0).astype(np.uint8)
             gt_occ[query_mask > 0] = 0
             occ_mask = np.maximum(occ_mask, gt_occ)
-        elif not np.any(occ_mask) and np.any(query_mask):
-            # Zero-GT fallback when InstaOrder misses the occluder on iteration 0:
-            # 1) any detected scene mask touching query_mask inside its expanded bbox; 2) expanded bbox complement
-            h_img, w_img = query_mask.shape[:2]
-            x_min, x_max, y_min, y_max = find_mask_sides(query_mask)
-            pad_h = max(12, int(round((x_max - x_min + 1) * 0.20)))
-            pad_w = max(12, int(round((y_max - y_min + 1) * 0.20)))
-            bx1, bx2 = max(0, x_min - pad_h), min(h_img, x_max + 1 + pad_h)
-            by1, by2 = max(0, y_min - pad_w), min(w_img, y_max + 1 + pad_w)
-            bbox_region = np.zeros((h_img, w_img), dtype=bool)
-            bbox_region[bx1:bx2, by1:by2] = True
-            adj_cands = [
-                (m > 0) & bbox_region
-                for i, m in enumerate(masks)
-                if i != int(mask_id) and np.any((m > 0) & bbox_region)
-            ]
-            if adj_cands:
-                occ_mask = aggregate_occluders(query_mask, adj_cands)
+        elif np.any(query_mask):
+            # In Zero-GT mode, always include enclosed interior holes and deep concavities/notches of query_mask
+            # so secondary/thin occluders (poles, signboards, straps, pillows, cats) are never left behind.
+            concav_occ = _extract_concavity_and_hole_occluders(query_mask, masks, mask_id)
+            occ_mask = np.maximum(occ_mask, concav_occ)
             if not np.any(occ_mask):
-                occ_mask = (bbox_region & ~(query_mask > 0)).astype(np.uint8)
+                # Fallback when InstaOrder and concavity check both return empty:
+                # 1) any detected scene mask touching query_mask inside its expanded bbox; 2) expanded bbox complement
+                h_img, w_img = query_mask.shape[:2]
+                x_min, x_max, y_min, y_max = find_mask_sides(query_mask)
+                pad_h = max(12, int(round((x_max - x_min + 1) * 0.20)))
+                pad_w = max(12, int(round((y_max - y_min + 1) * 0.20)))
+                bx1, bx2 = max(0, x_min - pad_h), min(h_img, x_max + 1 + pad_h)
+                by1, by2 = max(0, y_min - pad_w), min(w_img, y_max + 1 + pad_w)
+                bbox_region = np.zeros((h_img, w_img), dtype=bool)
+                bbox_region[bx1:bx2, by1:by2] = True
+                adj_cands = [
+                    (m > 0) & bbox_region
+                    for i, m in enumerate(masks)
+                    if i != int(mask_id) and np.any((m > 0) & bbox_region)
+                ]
+                if adj_cands:
+                    occ_mask = aggregate_occluders(query_mask, adj_cands)
+                if not np.any(occ_mask):
+                    occ_mask = (bbox_region & ~(query_mask > 0)).astype(np.uint8)
         # Identify specific occluder class names overlapping occ_mask for occluder-aware negative prompting
         if mask_class_names and np.any(occ_mask):
             q_low = query_class.strip().lower()

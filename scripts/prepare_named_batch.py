@@ -12,23 +12,99 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.data.cocoa_loader import Target, export_target
 
 
+_SYNONYM_GROUPS = (
+    {"bicycle", "bycycle", "bike", "cycle"},
+    {"sofa", "couch", "settee"},
+    {"television", "tv", "monitor", "display", "screen"},
+    {"refrigerator", "fridge"},
+    {"laptop", "computer", "computeer", "notebook"},
+    {"parasol", "umbrella"},
+    {"toilet", "comode", "commode", "toillet", "wc"},
+    {"plate", "dish", "bowl", "tray", "salver", "platter", "container", "contatiner"},
+    {"pot", "jar", "vessel", "pan", "kettle", "tub"},
+    {"cabinet", "cupboard", "shelf", "drawer", "wardrobe", "rack"},
+    {"napkin", "towel", "tissue", "cloth"},
+    {"car", "automobile", "vehicle", "van", "jeep", "truck", "bus"},
+    {"motorcycle", "motorbike", "bike", "scooter"},
+    {"toy", "bear", "teddy", "doll"},
+    {"table", "desk", "diningtable", "counter"},
+    {"chair", "bench", "seat", "stool", "loungechair"},
+    {"person", "man", "woman", "women", "boy", "girl", "baby", "child"},
+    {"house", "building", "buildings", "church", "clocktower", "tower"},
+    {"plant", "tree", "trees", "bush", "flower", "flowers", "branch"},
+    {"bag", "backpack", "suitcase", "briefcase", "handbag", "packet"},
+)
+
+_BACKGROUND_STUFF_NAMES = {
+    "background",
+    "wall",
+    "floor",
+    "building",
+    "buildings",
+    "sky",
+    "cloud",
+    "clouds",
+    "grass",
+    "grace",
+    "ground",
+    "land",
+    "road",
+    "street",
+    "pavement",
+    "sidewalk",
+    "water",
+    "snow",
+    "tree",
+    "trees",
+    "plant",
+    "window",
+    "door",
+    "ceiling",
+    "carpet",
+    "rug",
+    "fence",
+    "boundary",
+    "boundry",
+    "wood",
+    "tile",
+    "slab",
+    "deck",
+    "field",
+    "sand",
+    "rock",
+    "rocks",
+}
+
+
 def _norm_label(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
 
 
-def _region_match_score(region: dict, hint_norm: str, is_exact: bool) -> tuple[int, int, float]:
-    """Rank regions for an image entry: exact match > substring/token match > occluded largest area."""
+def _is_synonym_match(name_norm: str, hint_norm: str) -> bool:
+    if not name_norm or not hint_norm:
+        return False
+    for group in _SYNONYM_GROUPS:
+        name_in = any(g in name_norm or name_norm in g for g in group)
+        hint_in = any(g in hint_norm or hint_norm in g for g in group)
+        if name_in and hint_in:
+            return True
+    return False
+
+
+def _region_match_score(region: dict, hint_norm: str, is_exact: bool) -> tuple[int, int, int, float]:
+    """Rank regions for an image entry: exact match > substring/synonym match > foreground occluded > background."""
     name_norm = _norm_label(region.get("name", ""))
     occ_rate = float(region.get("occlude_rate") or 0.0)
     is_occluded = 1 if occ_rate > 0.0 else 0
+    is_foreground = 0 if (name_norm in _BACKGROUND_STUFF_NAMES or region.get("is_stuff")) else 1
     area = float(region.get("area") or 0.0)
     if is_exact or (hint_norm and name_norm == hint_norm):
         tier = 3
-    elif hint_norm and name_norm and (name_norm in hint_norm or hint_norm in name_norm):
+    elif hint_norm and name_norm and (name_norm in hint_norm or hint_norm in name_norm or _is_synonym_match(name_norm, hint_norm)):
         tier = 2
     else:
         tier = 1
-    return (tier, is_occluded, area)
+    return (tier, is_foreground, is_occluded, area)
 
 
 def prepare(root, labels, batch, output):

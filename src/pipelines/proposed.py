@@ -322,20 +322,12 @@ class Proposed:
             dst_rgba[:, :, :3] = comp_crop_np
             dst_rgba[:, :, 3] = seg_crop_bool.astype(np.uint8) * 255
 
-            if query_obj.sd_img_cut_rgba is not None and query_obj.sd_img_cut_rgba.shape == dst_rgba.shape:
-                shrunk_src = shrink_edges_to_transparent(query_obj.sd_img_cut_rgba, shrink_amount=10)
-                blended_crop_rgba = alpha_blending(shrunk_src, dst_rgba, transi_wid=5)
-            else:
-                blended_crop_rgba = dst_rgba
-
             if job:
-                Image.fromarray(blended_crop_rgba).save(job / "amodal_completion_crop.png")
+                Image.fromarray(dst_rgba).save(job / "amodal_completion_crop.png")
                 Image.fromarray(seg_crop_bool.astype(np.uint8) * 255).save(job / "amodal_segmentation.png")
 
-            query_obj.img_canvas[crop_x_min:crop_x_max, crop_y_min:crop_y_max] = blended_crop_rgba[:, :, :3]
-            query_obj.query_mask_canvas[crop_x_min:crop_x_max, crop_y_min:crop_y_max] = (
-                blended_crop_rgba[:, :, 3] > 0
-            ).astype(np.uint8)
+            query_obj.img_canvas[crop_x_min:crop_x_max, crop_y_min:crop_y_max] = comp_crop_np
+            query_obj.query_mask_canvas[crop_x_min:crop_x_max, crop_y_min:crop_y_max] = seg_crop_bool.astype(np.uint8)
 
             completed_full_rgb = query_obj.img_canvas[row_slice, col_slice].copy()
             predicted_amodal = (query_obj.query_mask_canvas[row_slice, col_slice] > 0) | vis
@@ -343,10 +335,26 @@ class Proposed:
             completed_full_rgb = image.copy()
             predicted_amodal = vis.copy()
 
-        # Keep the alpha-blended Open-World Amodal completion directly (no hard pixel overwrite on visible mask)
         amodal_out = (vis | occ_gt) if occ_gt is not None else predicted_amodal
-        completed_full_rgb[~amodal_out] = 255
         missing_out = amodal_out & ~vis
+
+        # Blend original crisp visible pixels with inpainted completion in exact HxW image coordinates
+        # ONLY along the internal seam between `vis` and `missing_out` (never eroding non-occluded outer edges).
+        if np.any(missing_out) and np.any(vis):
+            src_rgba_full = np.zeros((h, w, 4), dtype=np.uint8)
+            src_rgba_full[:, :, :3] = image
+            src_rgba_full[:, :, 3] = vis.astype(np.uint8) * 255
+
+            dst_rgba_full = np.zeros((h, w, 4), dtype=np.uint8)
+            dst_rgba_full[:, :, :3] = completed_full_rgb
+            dst_rgba_full[:, :, 3] = amodal_out.astype(np.uint8) * 255
+
+            blended_full = alpha_blending(src_rgba_full, dst_rgba_full, transi_wid=5)
+            completed_full_rgb = blended_full[:, :, :3].copy()
+        else:
+            completed_full_rgb[vis] = image[vis]
+
+        completed_full_rgb[~amodal_out] = 255
         rgba = finalize_rgba(completed_full_rgb, amodal_out, h, w)
 
         pad = dict(needs_outpaint=False, pad_top=0, pad_bottom=0, pad_left=0, pad_right=0)
