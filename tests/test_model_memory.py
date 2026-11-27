@@ -26,7 +26,11 @@ class FakeModel:
 
 class ModelMemoryTests(unittest.TestCase):
     def make_registry(self, fail=None):
-        registry = FoundationModels("sd2-community/stable-diffusion-2-inpainting", "ViT-B/32")
+        registry = FoundationModels(
+            "sd2-community/stable-diffusion-2-inpainting",
+            "ViT-B/32",
+            pipeline_config={"sequential_offload": True},
+        )
         events, resident, loads = [], set(), []
 
         def load(name):
