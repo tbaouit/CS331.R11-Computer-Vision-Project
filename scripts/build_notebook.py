@@ -120,7 +120,7 @@ else:
 ''',
 '''# 4. Chuẩn bị cùng tập mẫu cho mọi phiên bản
 BATCH = "full"  # Chọn 10, 50 hoặc "full".
-VISIBLE_MASK_SOURCE = "auto"  # Chọn "auto" (không dùng mask có sẵn: GroundingDINO + SAM tự đoán) hoặc "gt" (dùng visible_mask có sẵn).
+VISIBLE_MASK_SOURCE = "gt"  # Chọn "gt" (dùng toàn bộ mask ground truth có sẵn) hoặc "auto" (Zero-GT: GroundingDINO + SAM tự đoán).
 BATCH = str(BATCH)
 if BATCH not in ("10", "50", "full"):
     raise ValueError("BATCH phải là 10, 50 hoặc full")

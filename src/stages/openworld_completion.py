@@ -721,11 +721,12 @@ def run_progressive_iteration(
     if query_obj.iter_id == 0:
         occluder_masks = models.instaorder.analyze_masks(img, masks, mask_id)
         occ_mask = aggregate_occluders(query_mask, occluder_masks)
-        # Union with dataset occluded mask on iteration 0 when provided (GT mode)
-        if fallback_occluded_mask is not None and np.any(fallback_occluded_mask):
+        has_gt_occ = fallback_occluded_mask is not None and np.any(fallback_occluded_mask)
+        # In GT mode, use the exact dataset occluded mask directly so SD2 never hallucinates into sky/background.
+        if has_gt_occ:
             gt_occ = (np.asarray(fallback_occluded_mask) > 0).astype(np.uint8)
             gt_occ[query_mask > 0] = 0
-            occ_mask = np.maximum(occ_mask, gt_occ)
+            occ_mask = gt_occ
         elif np.any(query_mask):
             # In Zero-GT mode, always include enclosed interior holes and deep concavities/notches of query_mask
             # so secondary/thin occluders (poles, signboards, straps, pillows, cats) are never left behind.
@@ -774,8 +775,8 @@ def run_progressive_iteration(
         img_canvas = create_canvas(img, size_multiplier=size_mult, canvas_val=255)
         query_mask_canvas = create_canvas(query_mask, size_multiplier=size_mult, canvas_val=0)
         occ_mask_canvas = create_canvas(occ_mask, size_multiplier=size_mult, canvas_val=0)
-        # Only mark outpaint_mask_canvas=1 when query_mask actually touches an image boundary
-        outpaint_val = 1 if len(sides_touched) > 0 else 0
+        # In GT mode, the exact occluded region is already inside the image frame (do not outpaint sky/border)
+        outpaint_val = 0 if has_gt_occ else (1 if len(sides_touched) > 0 else 0)
         outpaint_mask_canvas = create_canvas(np.zeros_like(query_mask), size_multiplier=size_mult, canvas_val=outpaint_val)
 
         query_obj.img_canvas = img_canvas

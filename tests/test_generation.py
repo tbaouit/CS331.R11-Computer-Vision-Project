@@ -171,7 +171,7 @@ class GenerationTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as temp:
                 job = Path(temp)
-                result = completer.complete(image, vis, text_query="wooden table", job_dir=job, occluded_mask=occ)
+                result = completer.complete(image, vis, text_query="wooden table", job_dir=job, occluded_mask=None)
                 self.assertEqual(len(sd2_calls), 3)
                 self.assertEqual(result["_trace"]["synthesis_attempts"], 3)
                 self.assertEqual(result["_trace"]["selected_class"], "wooden table")
