@@ -548,11 +548,11 @@ def check_occlusion_after_inpaint(
     if query_obj.first_sd_occ_mask is not None and query_obj.first_sd_occ_mask.shape == allowed_region.shape:
         allowed_region = np.maximum(
             allowed_region,
-            _dilate_box((query_obj.first_sd_occ_mask > 0).astype(np.uint8), 5, iterations=1),
+            _dilate_box((query_obj.first_sd_occ_mask > 0).astype(np.uint8), 5, iterations=3),
         )
-    non_white_fg = np.any(comp_np < 246, axis=2).astype(np.uint8)
 
     if amodal_segs is None or len(amodal_segs) == 0:
+        non_white_fg = np.any(comp_np < 250, axis=2).astype(np.uint8)
         fallback_seg = np.maximum(
             (crop_query_mask > 0).astype(np.uint8),
             np.logical_and(allowed_region > 0, non_white_fg > 0).astype(np.uint8),
@@ -564,9 +564,8 @@ def check_occlusion_after_inpaint(
         return query_obj
 
     amodal_i, amodal_seg = filter_out_amodal_segmentation(crop_query_mask, amodal_segs)
-    # Clamp predicted amodal mask to the valid (visible | inpainted) region and exclude plain-white canvas background
+    # Clamp predicted amodal mask to the valid (visible | inpainted) region so it never leaks into un-inpainted background
     clamped_seg = np.logical_and(amodal_seg > 0, allowed_region > 0)
-    clamped_seg = np.logical_and(clamped_seg, non_white_fg > 0)
     amodal_seg_u8 = np.maximum(clamped_seg.astype(np.uint8), (crop_query_mask > 0).astype(np.uint8))
     query_obj.amodal_segmentation = amodal_seg_u8
 
@@ -732,6 +731,12 @@ def run_progressive_iteration(
         "image": sd_img_pil,
         "mask_image": sd_mask_pil,
         "prompt": sd_prompt,
+        "negative_prompt": config.get(
+            "negative_prompt",
+            "gray background, flat gray patch, gray fill, occluded, cut off, cropped, "
+            "blurry, low quality, distorted, deformed, extra limbs, floating head, "
+            "text, watermark, artifacts",
+        ),
         "generator": generator,
     }
     if "guidance_scale" in config:
