@@ -43,6 +43,31 @@ def remove_duplicates(items: list[str]) -> list[str]:
     return out
 
 
+_SCENE_BACKGROUND_TAGS = {
+    "background",
+    "wall",
+    "floor",
+    "ceiling",
+    "room",
+    "bathroom",
+    "bedroom",
+    "kitchen",
+    "living room",
+    "sky",
+    "grass",
+    "ground",
+    "field",
+    "rock",
+    "stone",
+    "water",
+    "street",
+    "road",
+    "building",
+    "indoor",
+    "outdoor",
+}
+
+
 class Proposed:
     """Open-World Amodal progressive completion pipeline using direct `visible_mask`."""
 
@@ -58,26 +83,35 @@ class Proposed:
         image_np: np.ndarray,
         visible_mask: np.ndarray,
         text_query: str = "",
-    ) -> tuple[list[str], str, np.ndarray]:
-        """Run RAM++ to get scene tags and CLIP ViT-B/32 on the masked visible region to choose `inpaint_prompt`."""
+    ) -> tuple[list[str], str, np.ndarray, str]:
+        """Run RAM++ to get scene tags and CLIP ViT-B/32 on the masked visible region to choose `inpaint_prompt` and visual context."""
         classes = self.models.ram_plus.infer_tags(img_pil)
         masked_image_np = np.zeros_like(image_np, dtype=np.uint8)
         masked_image_np[visible_mask] = image_np[visible_mask]
         clip_selected = self.models.openai_clip.select_prompt(
             Image.fromarray(masked_image_np),
             classes=classes,
-            text_query=text_query,
+            text_query="",
         )
         clean_query = (text_query or "").strip()
-        # Keep RAM++ + CLIP tag in scene classes for occluder detection, but anchor target identity to text_query
-        # when a specific object category is provided so background tags (wall/rock/bathroom) never hijack SD2.
+        context_descriptor = ""
+        # Keep RAM++ + CLIP tag in scene classes for occluder detection, anchor target identity to text_query,
+        # and retain non-background CLIP visual descriptor to enrich SD2's semantic context.
         if clean_query and clean_query.lower() not in ("object", "main object"):
             inpaint_prompt = clean_query
-            if clip_selected and clip_selected not in classes:
-                classes = list(classes) + [clip_selected]
+            clip_clean = (clip_selected or "").strip()
+            if (
+                clip_clean
+                and clip_clean.lower() not in _SCENE_BACKGROUND_TAGS
+                and clip_clean.lower() != clean_query.lower()
+                and clip_clean.lower() not in clean_query.lower()
+            ):
+                context_descriptor = clip_clean
+            if clip_clean and clip_clean not in classes:
+                classes = list(classes) + [clip_clean]
         else:
-            inpaint_prompt = clip_selected
-        return classes, inpaint_prompt, masked_image_np
+            inpaint_prompt = (clip_selected or clean_query or "object").strip()
+        return classes, inpaint_prompt, masked_image_np, context_descriptor
 
     def _segment_scene_and_attach_query_mask(
         self,
@@ -219,7 +253,7 @@ class Proposed:
         occ_gt = (np.asarray(occluded_mask, dtype=bool) & ~vis) if occluded_mask is not None else None
 
         # 1. RAM++ scene tagging & CLIP ViT-B/32 prompt selection on the given visible_mask
-        classes, inpaint_prompt, masked_image_np = self._select_prompt_with_ram_and_clip(
+        classes, inpaint_prompt, masked_image_np, context_descriptor = self._select_prompt_with_ram_and_clip(
             img_pil, image, vis, text_query=text_query
         )
         classes = remove_duplicates(list(classes) + [inpaint_prompt])
@@ -227,12 +261,18 @@ class Proposed:
             Image.fromarray(masked_image_np).save(job / "masked_image.png")
             (job / "prompt.txt").write_text(inpaint_prompt, encoding="utf-8")
             (job / "reasoning.txt").write_text(
-                f"RAM++ tags: {', '.join(classes)}\nSelected CLIP prompt: a {inpaint_prompt}",
+                f"RAM++ tags: {', '.join(classes)}\nSelected CLIP prompt: a {inpaint_prompt}\nContext descriptor: {context_descriptor}",
                 encoding="utf-8",
             )
         save_json(
             "prompt_selection.json",
-            {"prompt": f"a {inpaint_prompt}", "selected_class": inpaint_prompt, "ram_tags": classes, "text_query": text_query},
+            {
+                "prompt": f"a {inpaint_prompt}",
+                "selected_class": inpaint_prompt,
+                "context_descriptor": context_descriptor,
+                "ram_tags": classes,
+                "text_query": text_query,
+            },
         )
 
         # 2. GroundingDINO + cached SAM ViT-H instance segmentation + background contour extraction
@@ -248,6 +288,7 @@ class Proposed:
             mask_id=mask_id,
             query_mask=vis.astype(np.uint8),
             query_class=inpaint_prompt,
+            context_descriptor=context_descriptor,
             output_img_dir=job,
         )
 
@@ -260,6 +301,7 @@ class Proposed:
                 classes=classes,
                 config=self.config,
                 fallback_occluded_mask=occ_gt,
+                mask_class_names=class_names,
             )
 
         # 5. Post-process RGBA with smooth edge alpha blending and project back to original HxW frame

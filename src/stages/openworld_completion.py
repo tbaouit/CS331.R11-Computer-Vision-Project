@@ -59,6 +59,8 @@ class QueryObjectState:
     mask_id: int
     query_mask: np.ndarray
     query_class: str = "main object"
+    context_descriptor: str = ""
+    occluder_classes: list[str] = field(default_factory=list)
     output_img_dir: Optional[Path] = None
     run_iter: bool = True
     iter_id: int = 0
@@ -598,6 +600,7 @@ def run_progressive_iteration(
     classes: list[str],
     config: dict,
     fallback_occluded_mask: Optional[np.ndarray] = None,
+    mask_class_names: Optional[list[str]] = None,
 ) -> QueryObjectState:
     """Execute one iteration of Open-World Amodal progressive mixed-context diffusion."""
     import torch
@@ -642,6 +645,20 @@ def run_progressive_iteration(
                 occ_mask = aggregate_occluders(query_mask, adj_cands)
             if not np.any(occ_mask):
                 occ_mask = (bbox_region & ~(query_mask > 0)).astype(np.uint8)
+        # Identify specific occluder class names overlapping occ_mask for occluder-aware negative prompting
+        if mask_class_names and np.any(occ_mask):
+            q_low = query_class.strip().lower()
+            occ_names: list[str] = []
+            for idx, m in enumerate(masks):
+                if idx == int(mask_id) or idx >= len(mask_class_names):
+                    continue
+                cname = (mask_class_names[idx] or "").strip()
+                clow = cname.lower()
+                if not cname or clow.startswith("background_") or clow == q_low or clow in q_low:
+                    continue
+                if np.any((m > 0) & (occ_mask > 0)) and cname not in occ_names:
+                    occ_names.append(cname)
+            query_obj.occluder_classes = occ_names
         sides_touched = check_touch_boundary(query_mask)
         if not np.any(occ_mask) and len(sides_touched) == 0:
             query_obj.run_iter = False
@@ -683,8 +700,13 @@ def run_progressive_iteration(
     sd_img = crop_img.copy()
     sd_modal_mask = (crop_query_mask > 0).astype(np.uint8)
     sd_occ_mask = ((crop_occ_mask.astype(np.uint16) + crop_outpaint_mask.astype(np.uint16)) > 0).astype(np.uint8)
+    ctx_desc = (query_obj.context_descriptor or "").strip()
+    if ctx_desc and ctx_desc.lower() not in query_class.lower():
+        subject_phrase = f"{query_class} ({ctx_desc})"
+    else:
+        subject_phrase = query_class
     sd_prompt = (
-        f"a photo of a {query_class}, complete object on a plain white background, "
+        f"a photo of a {subject_phrase}, complete object on a plain white background, "
         "natural colors, realistic texture"
     )
 
@@ -714,10 +736,14 @@ def run_progressive_iteration(
         sd_occ_mask = _dilate_box(sd_occ_mask, 5, iterations=3)
     else:
         sd_occ_mask = _dilate_box(sd_occ_mask, 3, iterations=1)
-    # Place the visible/completed object on a clean white (255) canvas and seed only the inpaint region with neutral gray (127)
-    # so SD2 never sees or preserves flat-gray (127) or cluttered scene background outside the object.
+    # Place the visible/completed object on a clean white (255) canvas and seed the inpaint region with the
+    # visible object's median RGB color so SD2 VAE conditioning preserves the object's color distribution.
     sd_img_syn = np.full_like(sd_img, 255, dtype=np.uint8)
-    sd_img_syn[sd_occ_mask > 0] = clean_bg_val
+    if np.any(sd_modal_mask > 0):
+        vis_median_rgb = np.median(sd_img[sd_modal_mask > 0], axis=0).astype(np.uint8)
+        sd_img_syn[sd_occ_mask > 0] = vis_median_rgb
+    else:
+        sd_img_syn[sd_occ_mask > 0] = clean_bg_val
     sd_img_syn[sd_modal_mask > 0] = sd_img[sd_modal_mask > 0]
 
     sd_img_pil = Image.fromarray(sd_img_syn).convert("RGB").resize((sd_target_size, sd_target_size), Image.Resampling.LANCZOS)
@@ -727,16 +753,22 @@ def run_progressive_iteration(
     seed = int(config.get("seed", 42)) + current_iter * 1009
     pipe = models.pipe
     generator = torch.Generator(device=models.device).manual_seed(seed)
+    base_neg_prompt = config.get(
+        "negative_prompt",
+        "gray background, flat gray patch, gray fill, occluded, cut off, cropped, "
+        "blurry, low quality, distorted, deformed, extra limbs, floating head, "
+        "text, watermark, artifacts",
+    )
+    if query_obj.occluder_classes:
+        occ_neg = ", ".join(query_obj.occluder_classes)
+        neg_prompt = f"{base_neg_prompt}, {occ_neg}"
+    else:
+        neg_prompt = base_neg_prompt
     call_kwargs = {
         "image": sd_img_pil,
         "mask_image": sd_mask_pil,
         "prompt": sd_prompt,
-        "negative_prompt": config.get(
-            "negative_prompt",
-            "gray background, flat gray patch, gray fill, occluded, cut off, cropped, "
-            "blurry, low quality, distorted, deformed, extra limbs, floating head, "
-            "text, watermark, artifacts",
-        ),
+        "negative_prompt": neg_prompt,
         "generator": generator,
     }
     if "guidance_scale" in config:
