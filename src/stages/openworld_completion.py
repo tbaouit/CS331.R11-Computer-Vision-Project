@@ -281,55 +281,71 @@ def segment_with_cached_sam(
 
 
 def handlemask(masks: np.ndarray | list[np.ndarray]) -> list[np.ndarray]:
-    """Identify and extract additional background regions (`handlemask` from `D:/amodal/main.py`)."""
+    """Identify and extract additional unsegmented foreground regions while excluding giant scene backgrounds."""
     if len(masks) == 0:
         return []
-    mask_sum = np.zeros_like(masks[0], dtype=np.uint8)
+    h, w = masks[0].shape[:2]
+    max_fg_area = 0.30 * float(h * w)
+    mask_sum = np.zeros((h, w), dtype=np.uint8)
     for mask in masks:
         mask_sum = np.maximum(mask_sum, (mask > 0).astype(np.uint8))
 
     new_mask = (1 - mask_sum).astype(np.uint8)
     eroded_mask = _erode_box(new_mask, 5, iterations=1)
+    raw_components: list[np.ndarray] = []
     if cv2 is not None:
         contours, _ = cv2.findContours(eroded_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        separated: list[np.ndarray] = []
         for contour in contours:
-            if cv2.contourArea(contour) > 100:
+            area = cv2.contourArea(contour)
+            if 100 < area <= max_fg_area:
                 m = np.zeros_like(eroded_mask, dtype=np.uint8)
                 cv2.drawContours(m, [contour], -1, 1, -1)
-                separated.append(m.astype(bool))
-        return separated
+                raw_components.append(m)
+    else:
+        visited = np.zeros((h, w), dtype=bool)
+        for y in range(h):
+            for x in range(w):
+                if eroded_mask[y, x] and not visited[y, x]:
+                    comp = np.zeros((h, w), dtype=np.uint8)
+                    q = deque([(y, x)])
+                    visited[y, x] = True
+                    count = 0
+                    while q:
+                        cy, cx = q.popleft()
+                        comp[cy, cx] = 1
+                        count += 1
+                        for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                            if 0 <= ny < h and 0 <= nx < w and eroded_mask[ny, nx] and not visited[ny, nx]:
+                                visited[ny, nx] = True
+                                q.append((ny, nx))
+                    if 100 < count <= max_fg_area:
+                        raw_components.append(comp)
 
-    # Pure NumPy connected-component fallback when cv2 is not installed
-    h, w = eroded_mask.shape
-    visited = np.zeros((h, w), dtype=bool)
-    components: list[np.ndarray] = []
-    for y in range(h):
-        for x in range(w):
-            if eroded_mask[y, x] and not visited[y, x]:
-                comp = np.zeros((h, w), dtype=bool)
-                q = deque([(y, x)])
-                visited[y, x] = True
-                count = 0
-                while q:
-                    cy, cx = q.popleft()
-                    comp[cy, cx] = True
-                    count += 1
-                    for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
-                        if 0 <= ny < h and 0 <= nx < w and eroded_mask[ny, nx] and not visited[ny, nx]:
-                            visited[ny, nx] = True
-                            q.append((ny, nx))
-                if count > 100:
-                    components.append(comp)
-    return components
+    separated: list[np.ndarray] = []
+    for comp_u8 in raw_components:
+        # Skip whole-scene background walls/floors that touch 3 or more image borders
+        if len(check_touch_boundary(comp_u8, gap_pixels=3)) >= 3:
+            continue
+        # Restore the 5px erosion so there is never an artificial 5px gap/moat around the target object
+        restored = (_dilate_box(comp_u8, 5, iterations=1) > 0) & (new_mask > 0)
+        if restored.any():
+            separated.append(restored)
+    return separated
 
 
 def aggregate_occluders(query_mask: np.ndarray, all_occluder_masks: list[np.ndarray]) -> np.ndarray:
-    """Aggregate all occluders into a binary mask excluding `query_mask`."""
-    agg = np.zeros(query_mask.shape[:2], dtype=np.uint8)
-    for occ in all_occluder_masks:
-        agg = np.maximum(agg, (occ > 0).astype(np.uint8))
+    """Aggregate foreground occluders adjacent to `query_mask` while rejecting full-scene background masks."""
+    h, w = query_mask.shape[:2]
     q_bin = (query_mask > 0).astype(np.uint8)
+    dilated_q = _dilate_box(q_bin, 9, iterations=1) > 0
+    agg = np.zeros((h, w), dtype=np.uint8)
+    for occ in all_occluder_masks:
+        occ_bool = np.asarray(occ) > 0
+        if not np.any(occ_bool & dilated_q):
+            continue
+        if float(occ_bool.sum()) > 0.65 * float(h * w):
+            continue
+        agg = np.maximum(agg, occ_bool.astype(np.uint8))
     agg[(q_bin + agg) > 1] = 0
     return agg
 
@@ -522,17 +538,25 @@ def check_occlusion_after_inpaint(
     comp_np, amodal_segs, _, _ = segment_with_cached_sam(
         models,
         amodal_completion_pil,
-        classes,
+        [query_class],
         target_class=query_class,
-        box_thresh=box_thresh,
-        text_thresh=text_thresh,
+        box_thresh=min(box_thresh, 0.25),
+        text_thresh=min(text_thresh, 0.25),
     )
 
+    allowed_region = (crop_query_mask > 0).astype(np.uint8)
+    if query_obj.first_sd_occ_mask is not None and query_obj.first_sd_occ_mask.shape == allowed_region.shape:
+        allowed_region = np.maximum(
+            allowed_region,
+            _dilate_box((query_obj.first_sd_occ_mask > 0).astype(np.uint8), 5, iterations=1),
+        )
+    non_white_fg = np.any(comp_np < 246, axis=2).astype(np.uint8)
+
     if amodal_segs is None or len(amodal_segs) == 0:
-        # Keep the union of visible modal mask and inpainted region when detector finds no segments
-        fallback_seg = (crop_query_mask > 0).astype(np.uint8)
-        if query_obj.first_sd_occ_mask is not None:
-            fallback_seg = np.maximum(fallback_seg, (query_obj.first_sd_occ_mask > 0).astype(np.uint8))
+        fallback_seg = np.maximum(
+            (crop_query_mask > 0).astype(np.uint8),
+            np.logical_and(allowed_region > 0, non_white_fg > 0).astype(np.uint8),
+        )
         query_obj.amodal_segmentation = fallback_seg
         query_obj.img_canvas[crop_x_min:crop_x_max, crop_y_min:crop_y_max] = comp_np
         query_obj.query_mask_canvas[crop_x_min:crop_x_max, crop_y_min:crop_y_max] = fallback_seg
@@ -540,7 +564,10 @@ def check_occlusion_after_inpaint(
         return query_obj
 
     amodal_i, amodal_seg = filter_out_amodal_segmentation(crop_query_mask, amodal_segs)
-    amodal_seg_u8 = np.maximum((amodal_seg > 0).astype(np.uint8), (crop_query_mask > 0).astype(np.uint8))
+    # Clamp predicted amodal mask to the valid (visible | inpainted) region and exclude plain-white canvas background
+    clamped_seg = np.logical_and(amodal_seg > 0, allowed_region > 0)
+    clamped_seg = np.logical_and(clamped_seg, non_white_fg > 0)
+    amodal_seg_u8 = np.maximum(clamped_seg.astype(np.uint8), (crop_query_mask > 0).astype(np.uint8))
     query_obj.amodal_segmentation = amodal_seg_u8
 
     new_occluder_masks = models.instaorder.analyze_masks(comp_np, amodal_segs, amodal_i)
@@ -591,11 +618,31 @@ def run_progressive_iteration(
     if query_obj.iter_id == 0:
         occluder_masks = models.instaorder.analyze_masks(img, masks, mask_id)
         occ_mask = aggregate_occluders(query_mask, occluder_masks)
-        # Union with dataset occluded mask on iteration 0 so SD2 always inpaints the full occluded region
+        # Union with dataset occluded mask on iteration 0 when provided (GT mode)
         if fallback_occluded_mask is not None and np.any(fallback_occluded_mask):
             gt_occ = (np.asarray(fallback_occluded_mask) > 0).astype(np.uint8)
             gt_occ[query_mask > 0] = 0
             occ_mask = np.maximum(occ_mask, gt_occ)
+        elif not np.any(occ_mask) and np.any(query_mask):
+            # Zero-GT fallback when InstaOrder misses the occluder on iteration 0:
+            # 1) any detected scene mask touching query_mask inside its expanded bbox; 2) expanded bbox complement
+            h_img, w_img = query_mask.shape[:2]
+            x_min, x_max, y_min, y_max = find_mask_sides(query_mask)
+            pad_h = max(12, int(round((x_max - x_min + 1) * 0.20)))
+            pad_w = max(12, int(round((y_max - y_min + 1) * 0.20)))
+            bx1, bx2 = max(0, x_min - pad_h), min(h_img, x_max + 1 + pad_h)
+            by1, by2 = max(0, y_min - pad_w), min(w_img, y_max + 1 + pad_w)
+            bbox_region = np.zeros((h_img, w_img), dtype=bool)
+            bbox_region[bx1:bx2, by1:by2] = True
+            adj_cands = [
+                (m > 0) & bbox_region
+                for i, m in enumerate(masks)
+                if i != int(mask_id) and np.any((m > 0) & bbox_region)
+            ]
+            if adj_cands:
+                occ_mask = aggregate_occluders(query_mask, adj_cands)
+            if not np.any(occ_mask):
+                occ_mask = (bbox_region & ~(query_mask > 0)).astype(np.uint8)
         sides_touched = check_touch_boundary(query_mask)
         if not np.any(occ_mask) and len(sides_touched) == 0:
             query_obj.run_iter = False
@@ -605,7 +652,9 @@ def run_progressive_iteration(
         img_canvas = create_canvas(img, size_multiplier=size_mult, canvas_val=255)
         query_mask_canvas = create_canvas(query_mask, size_multiplier=size_mult, canvas_val=0)
         occ_mask_canvas = create_canvas(occ_mask, size_multiplier=size_mult, canvas_val=0)
-        outpaint_mask_canvas = create_canvas(np.zeros_like(query_mask), size_multiplier=size_mult, canvas_val=1)
+        # Only mark outpaint_mask_canvas=1 when query_mask actually touches an image boundary
+        outpaint_val = 1 if len(sides_touched) > 0 else 0
+        outpaint_mask_canvas = create_canvas(np.zeros_like(query_mask), size_multiplier=size_mult, canvas_val=outpaint_val)
 
         query_obj.img_canvas = img_canvas
         query_obj.query_mask_canvas = query_mask_canvas
@@ -635,7 +684,10 @@ def run_progressive_iteration(
     sd_img = crop_img.copy()
     sd_modal_mask = (crop_query_mask > 0).astype(np.uint8)
     sd_occ_mask = ((crop_occ_mask.astype(np.uint16) + crop_outpaint_mask.astype(np.uint16)) > 0).astype(np.uint8)
-    sd_prompt = f"a {query_class}"
+    sd_prompt = (
+        f"a photo of a {query_class}, complete object on a plain white background, "
+        "natural colors, realistic texture"
+    )
 
     sd_modal_erode = _erode_box(sd_modal_mask, 5, iterations=1)
     if not np.any(sd_modal_erode):
@@ -661,12 +713,13 @@ def run_progressive_iteration(
     input_h, input_w = sd_img.shape[:2]
     if query_obj.iter_id == 0:
         sd_occ_mask = _dilate_box(sd_occ_mask, 5, iterations=3)
-        # Swap background with neutral clean background without ever overflowing dimensions
-        sd_img_syn = np.full_like(sd_img, clean_bg_val, dtype=np.uint8)
-        sd_img_syn[sd_modal_mask > 0] = sd_img[sd_modal_mask > 0]
     else:
         sd_occ_mask = _dilate_box(sd_occ_mask, 3, iterations=1)
-        sd_img_syn = sd_img.copy()
+    # Place the visible/completed object on a clean white (255) canvas and seed only the inpaint region with neutral gray (127)
+    # so SD2 never sees or preserves flat-gray (127) or cluttered scene background outside the object.
+    sd_img_syn = np.full_like(sd_img, 255, dtype=np.uint8)
+    sd_img_syn[sd_occ_mask > 0] = clean_bg_val
+    sd_img_syn[sd_modal_mask > 0] = sd_img[sd_modal_mask > 0]
 
     sd_img_pil = Image.fromarray(sd_img_syn).convert("RGB").resize((sd_target_size, sd_target_size), Image.Resampling.LANCZOS)
     sd_mask_pil = Image.fromarray(sd_occ_mask * 255).convert("L").resize((sd_target_size, sd_target_size), Image.Resampling.NEAREST)

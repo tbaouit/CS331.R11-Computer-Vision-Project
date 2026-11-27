@@ -63,11 +63,20 @@ class Proposed:
         classes = self.models.ram_plus.infer_tags(img_pil)
         masked_image_np = np.zeros_like(image_np, dtype=np.uint8)
         masked_image_np[visible_mask] = image_np[visible_mask]
-        inpaint_prompt = self.models.openai_clip.select_prompt(
+        clip_selected = self.models.openai_clip.select_prompt(
             Image.fromarray(masked_image_np),
             classes=classes,
             text_query=text_query,
         )
+        clean_query = (text_query or "").strip()
+        # Keep RAM++ + CLIP tag in scene classes for occluder detection, but anchor target identity to text_query
+        # when a specific object category is provided so background tags (wall/rock/bathroom) never hijack SD2.
+        if clean_query and clean_query.lower() not in ("object", "main object"):
+            inpaint_prompt = clean_query
+            if clip_selected and clip_selected not in classes:
+                classes = list(classes) + [clip_selected]
+        else:
+            inpaint_prompt = clip_selected
         return classes, inpaint_prompt, masked_image_np
 
     def _segment_scene_and_attach_query_mask(
